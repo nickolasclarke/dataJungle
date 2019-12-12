@@ -69,6 +69,12 @@ cols = ['datetime', 'latitude', 'longitude', 'name', '100mAADT12', '100mFAF12', 
 df_truck = df_truck[cols]
 df_truck.head(1)
 
+# In[]
+#need to get PA data in final format
+df_pa = pd.read_csv("Purple_Air.csv")
+
+df_pa.head(10)
+
 
 # ## <font color='yellow'>Selecting a date and time</font>
 # 
@@ -101,7 +107,7 @@ def select_datetime(df, month, day, hour, year=2018):
 df_epa_jan3 = select_datetime(df_epa, 1, 3, 12)
 df_noaa_jan3 = select_datetime(df_noaa, 1, 3, 12)
 df_beac_jan3 = select_datetime(df_beac, 1, 3, 12)
-
+df_pa_jan3 = select_datetime(df_pa, 1, 3, 12)
 
 # ## <font color='yellow'>Selecting relevant data points: KNN</font>
 # 
@@ -178,8 +184,8 @@ def get_final_timevarying_dataframe(df_epa, other_dfs, month=1, day=3, hour=12, 
 
 # In[13]:
 
-
-df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac])
+#jake note: if cell doesn't run w PA, then do PA merge
+df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac, df_pa])
 df_analysis = df_analysis.drop(columns=['latitude_y','longitude_y'])
 df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x':'longitude'})
 
@@ -188,7 +194,7 @@ df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x'
 
 
 df_analysis = df_analysis.merge(df_truck, on=['latitude','longitude'], how='left')
-
+#Jake note: might need to do another merge with PA data if the cell above doesn't work - perhaps due to lack of datetime 
 
 # ## <font color='yellow'>Running some tests</font>
 # 
@@ -216,7 +222,7 @@ df_analysis = df_analysis[nullcount == 0].reset_index(drop=True) #only lost 1 da
 
 # In[24]:
 
-
+#Jake note: look at DF to see if any PA columns should be dropped
 y = df_analysis['epa_meas']
 X = df_analysis.drop(columns=['epa_meas','latitude','longitude','datetime','name'])
 #precip has nans
@@ -406,8 +412,28 @@ coefs_all
 # So Lasso wins, but OLS is very bizarre (gigantic MSE), even though it was normalized.
 # Maybe we should normalize by hand?
 
+#jake notes: I put this in whatsapp but I'm actually seeing that LR wins
+
 # In[ ]:
+#Visualization of Beta Coefficients
+
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+
+#Jake notes:
+#Not super surprising. Notably, the beta values are larger for Lasso/Ridge relative to LR for some coefficients
+#The bulk of the beta values remain around 0 even for LR
 
 
 
 
+
+
+# %%

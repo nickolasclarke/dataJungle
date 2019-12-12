@@ -118,9 +118,16 @@ noaa_coords.rename(columns={'stationIdentifier':'Station_ID'}, inplace=True)
 df_noaa = df
 df_noaa = df_noaa.merge(noaa_coords, on='Station_ID', how='left')
 
+# %% [markdown]
+# ### Relabeling columns
+# 
 
 # %%
-df_noaa = df_noaa.rename(columns={'Station_ID':'name'})
+df_noaa.head(1)
+
+
+# %%
+df_noaa = df_noaa.rename(columns={'Station_ID':'name', 'wind_direction_set_1':'wind_dir', 'wind_speed_set_1':'wind_speed','pressure_set_1d':'pressure','precip_accum_one_hour_set_1':'precip', 'air_temp_set_1':'temp'})
 
 # %% [markdown]
 # ### <font color='yellow'>Shaping data for single-point model</font>
@@ -145,23 +152,29 @@ for key in DataFrameDict.keys():
 
 
 # %%
-DataFrameDict['wind_speed_set_1'].head()
-
-
-# %%
 for key in DataFrameDict.keys():
     DataFrameDict[key] = DataFrameDict[key].pivot_table(index='datetime',columns='name',values=key)
 
 
 # %%
-DataFrameDict['wind_speed_set_1'].head(1)
+for key in DataFrameDict.keys():
+    DataFrameDict[key] = DataFrameDict[key].add_suffix("_"+key)
+
+
+# %%
+DataFrameDict['wind_dir'].head(1)
 #wow, this worked like a charm
 
 
 # %%
-#Outputting each data type into separate CSV
-for key in DataFrameDict.keys():
-    DataFrameDict[key].to_csv("NOAA"+key+".csv")
+df_noaa_output = pd.concat(DataFrameDict, axis=1)
+df_noaa_output.to_csv("NOAA_Data_SinglePointModel.csv")
+
+
+# %%
+#Outputting each data type into separate CSV, if we want that
+#for key in DataFrameDict.keys():
+#    DataFrameDict[key].to_csv("NOAA"+key+".csv")
 
 # %% [markdown]
 # ### <font color='yellow'>Shaping data for multi-point model</font>
@@ -171,14 +184,18 @@ df_noaa.head()
 
 
 # %%
+df_noaa.columns.tolist()
+
+
+# %%
 #We want every dataframe's columns in the following order: datetime, lat, lon, name, measurement1, measurement2, ...
-cols = ['datetime',  'latitude', 'longitude', 'Station_ID',
- 'wind_direction_set_1',
- 'wind_speed_set_1',
- 'pressure_set_1d',
- 'precip_accum_one_hour_set_1',
- 'air_temp_set_1',
-]
+cols = ['datetime', 'latitude','longitude','name',
+ 'wind_dir',
+ 'wind_speed',
+ 'pressure',
+ 'precip',
+ 'temp',
+ ]
 df_noaa = df_noaa[cols]
 
 

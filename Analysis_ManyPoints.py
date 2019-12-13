@@ -71,8 +71,7 @@ df_truck.head(1)
 
 # In[]
 #need to get PA data in final format
-df_pa = pd.read_csv("Purple_Air.csv")
-
+df_pa = pd.read_csv("pa_melted.csv")
 df_pa.head(10)
 
 
@@ -104,10 +103,10 @@ def select_datetime(df, month, day, hour, year=2018):
 
 
 #Testing w/ each DF:
-df_epa_jan3 = select_datetime(df_epa, 1, 3, 12)
-df_noaa_jan3 = select_datetime(df_noaa, 1, 3, 12)
-df_beac_jan3 = select_datetime(df_beac, 1, 3, 12)
-#df_pa_jan3 = select_datetime(df_pa, 1, 3, 12)
+df_epa_jan3 = select_datetime(df_epa, 5, 2, 8)
+df_noaa_jan3 = select_datetime(df_noaa, 5, 2, 8)
+df_beac_jan3 = select_datetime(df_beac, 5, 2, 8)
+df_pa_jan3 = select_datetime(df_pa, 5, 2, 8)
 
 # ## <font color='yellow'>Selecting relevant data points: KNN</font>
 # 
@@ -452,8 +451,84 @@ plt.ylabel('Coefficient Values')
 
 #In[]
 
-#jake attempt at countif on ideal hour to analyze
+#countif on ideal hour to analyze
+#notes on general structure below: read in csvs, groupby datetime, count # of items per datetime, find max value, slice based on # of times that value appears
 
+
+#EPA
+
+df_epa = pd.read_csv("EPA_Data_MultiPointModel.csv")
+df_epa.head()
+
+group_epa = df_epa.groupby("datetime")
+group_epa.head()
+epa_counts = group_epa["datetime"].value_counts()
+epa_counts.head(20)
+
+max(epa_counts) # most common is 147 times
+
+EPA = epa_counts.loc[epa_counts==147]
+print(EPA)
+
+#May 2 at 8:00
+#June 7 at 8:00
+
+# In[]
+
+#NOAA
+
+df_noaa = pd.read_csv("NOAA_Data_MultiPointModel.csv")
+df_noaa.head()
+
+group_noaa = df_noaa.groupby("datetime")
+group_noaa.head()
+noaa_counts = group_noaa["datetime"].value_counts()
+noaa_counts.head(5)
+
+max(noaa_counts) # most common is 118 times
+
+NOAA = noaa_counts.loc[noaa_counts==118]
+print(NOAA)
+
+#seems like every datetime in NOAA is 118 times
+
+
+# In[]
+
+#BEACON
+
+df_beac = pd.read_csv("Beacon_Data_MultiPointModel.csv")
+df_beac.head(1)
+
+group_beac = df_beac.groupby("datetime")
+group_beac.head()
+beac_counts = group_beac["datetime"].value_counts()
+beac_counts.head(5)
+
+max(beac_counts) # most common is 8 times...
+
+BEAC = beac_counts.loc[beac_counts==8]
+print(BEAC)
+
+#seems like ever datetime in BEAC appears 8 times.
+
+# In[]
+#PA
+
+df_pa = pd.read_csv("pa_melted.csv")
+df_pa.head(10)
+
+group_pa = df_pa.groupby("datetime")
+group_pa.head()
+pa_counts = group_pa["datetime"].value_counts()
+pa_counts.head(5)
+
+max(pa_counts) # most common is 128 times...
+
+PA = pa_counts.loc[pa_counts==128]
+print(PA)
+
+#seems like it's all in Feb
 
 
 

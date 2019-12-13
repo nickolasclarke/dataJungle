@@ -107,7 +107,7 @@ def select_datetime(df, month, day, hour, year=2018):
 df_epa_jan3 = select_datetime(df_epa, 1, 3, 12)
 df_noaa_jan3 = select_datetime(df_noaa, 1, 3, 12)
 df_beac_jan3 = select_datetime(df_beac, 1, 3, 12)
-df_pa_jan3 = select_datetime(df_pa, 1, 3, 12)
+#df_pa_jan3 = select_datetime(df_pa, 1, 3, 12)
 
 # ## <font color='yellow'>Selecting relevant data points: KNN</font>
 # 
@@ -184,8 +184,8 @@ def get_final_timevarying_dataframe(df_epa, other_dfs, month=1, day=3, hour=12, 
 
 # In[13]:
 
-#jake note: if cell doesn't run w PA, then do PA merge
-df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac, df_pa])
+#jake note: add PA, if cell doesn't run w PA, then do PA merge
+df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac])
 df_analysis = df_analysis.drop(columns=['latitude_y','longitude_y'])
 df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x':'longitude'})
 
@@ -224,7 +224,8 @@ df_analysis = df_analysis[nullcount == 0].reset_index(drop=True) #only lost 1 da
 
 #Jake note: look at DF to see if any PA columns should be dropped
 y = df_analysis['epa_meas']
-X = df_analysis.drop(columns=['epa_meas','latitude','longitude','datetime','name'])
+#for full -> X = df_analysis.drop(columns=['epa_meas','latitude','longitude','datetime','name'])
+X = df_analysis.drop(columns=['epa_meas','latitude','longitude'])
 #precip has nans
 
 
@@ -303,6 +304,19 @@ mses_all
 
 
 coefs_all
+
+# In[]
+#Visualization of beta values
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+
 
 
 # In[31]:
@@ -436,4 +450,10 @@ plt.ylabel('Coefficient Values')
 
 
 
-# %%
+#In[]
+
+#jake attempt at countif on ideal hour to analyze
+
+
+
+

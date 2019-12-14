@@ -72,6 +72,7 @@ df_truck.head(1)
 # In[]
 #need to get PA data in final format
 df_pa = pd.read_csv("pa_melted.csv")
+df_pa.rename(columns={"lat":"latitude","lon":"longitude"})
 df_pa.head(10)
 
 
@@ -161,7 +162,7 @@ def get_KNN_avgs(df_epa, df_other, k=5):
 # In[12]:
 
 
-def get_final_timevarying_dataframe(df_epa, other_dfs, month=1, day=3, hour=12, k=5):
+def get_final_timevarying_dataframe(df_epa, other_dfs, month=5, day=2, hour=8, k=5):
     """
     Input: EPA dataframe, list of any other dataframes to be added in via KNN, and desired day/time
     Other df format must be ['datetime', 'latitude','longitude','name','data1','data2'..]
@@ -199,6 +200,11 @@ df_analysis = df_analysis.merge(df_truck, on=['latitude','longitude'], how='left
 # 
 # OLS? RIDGE? LASSO? BEST SUBSET?!?!?!
 
+# In[]
+
+df_analysis = df_analysis.merge(df_pa, on=["latitude","longitude"], how="left")
+
+
 # In[15]:
 
 
@@ -216,16 +222,16 @@ df_analysis = df_analysis.drop(columns=['precip_accum_one_hour_set_1'])
 
 
 nullcount = df_analysis.isnull().sum(axis=1)
-df_analysis = df_analysis[nullcount == 0].reset_index(drop=True) #only lost 1 data pt
+df_analysis = df_analysis[nullcount == 0].reset_index(drop=True)
 
 
 # In[24]:
+from sklearn.preprocessing import StandardScaler
 
-#Jake note: look at DF to see if any PA columns should be dropped
 y = df_analysis['epa_meas']
-#for full -> X = df_analysis.drop(columns=['epa_meas','latitude','longitude','datetime','name'])
-X = df_analysis.drop(columns=['epa_meas','latitude','longitude'])
-#precip has nans
+X_raw = df_analysis.drop(columns=['epa_meas','latitude','longitude','datetime','name'])
+scaler = StandardScaler()
+X = pd.DataFrame(scaler.fit_transform(X_raw), index=X_raw.index, columns=X_raw.columns)
 
 
 # In[25]:
@@ -440,11 +446,6 @@ plt.title('Coefficient Values (Betas)')
 plt.xlabel('Coefficients')
 plt.ylabel('Coefficient Values')
 
-#Jake notes:
-#Not super surprising. Notably, the beta values are larger for Lasso/Ridge relative to LR for some coefficients
-#The bulk of the beta values remain around 0 even for LR
-
-
 
 
 
@@ -452,8 +453,6 @@ plt.ylabel('Coefficient Values')
 #In[]
 
 #countif on ideal hour to analyze
-#notes on general structure below: read in csvs, groupby datetime, count # of items per datetime, find max value, slice based on # of times that value appears
-
 
 #EPA
 
@@ -529,6 +528,8 @@ PA = pa_counts.loc[pa_counts==128]
 print(PA)
 
 #seems like it's all in Feb
+
+
 
 
 

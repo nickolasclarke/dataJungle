@@ -71,7 +71,7 @@ df_truck.head(1)
 
 # In[]
 #need to get PA data in final format
-df_pa = pd.read_csv("pa_melted.csv")
+df_pa = pd.read_csv("pa_full.csv")
 df_pa.rename(columns={"lat":"latitude","lon":"longitude"})
 df_pa.head(10)
 

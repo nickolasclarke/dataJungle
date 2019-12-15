@@ -70,10 +70,58 @@ df_truck = df_truck[cols]
 df_truck.head(1)
 
 # In[]
-#need to get PA data in final format
 df_pa = pd.read_csv("pa_full.csv")
-df_pa.rename(columns={"lat":"latitude","lon":"longitude"})
+df_pa = df_pa.rename(columns={"lat":"latitude","lon":"longitude"})
+df_pa['name'] = 'none'
+cols = ['datetime', 'latitude', 'longitude','name','PM1.0 (ATM)','PM2.5 (ATM)','PM10.0 (ATM)','PM2.5 (CF=1)','id']
+df_pa = df_pa[cols]
 df_pa.head(10)
+
+
+#In[]
+
+#Find most common hours throughout all data sets
+
+#EPA
+
+group_epa = df_epa.groupby("datetime")
+epa_counts = group_epa["datetime"].value_counts()
+
+EPA = epa_counts.loc[epa_counts==max(epa_counts)]
+print(EPA)
+
+
+# In[]
+
+#NOAA
+
+group_noaa = df_noaa.groupby("datetime")
+noaa_counts = group_noaa["datetime"].value_counts()
+
+NOAA = noaa_counts.loc[noaa_counts==max(noaa_counts)]
+print(NOAA)
+
+
+# In[]
+
+#BEACON
+
+group_beac = df_beac.groupby("datetime")
+group_beac.head()
+beac_counts = group_beac["datetime"].value_counts()
+beac_counts.head(5)
+
+BEAC = beac_counts.loc[beac_counts==max(beac_counts)]
+print(BEAC)
+
+# In[]
+#PA
+
+group_pa = df_pa.groupby("datetime")
+pa_counts = group_pa["datetime"].value_counts()
+
+PA = pa_counts.loc[pa_counts==max(pa_counts)]
+print(PA)
 
 
 # ## <font color='yellow'>Selecting a date and time</font>
@@ -162,7 +210,7 @@ def get_KNN_avgs(df_epa, df_other, k=5):
 # In[12]:
 
 
-def get_final_timevarying_dataframe(df_epa, other_dfs, month=5, day=2, hour=8, k=5):
+def get_final_timevarying_dataframe(df_epa, other_dfs, month, day, hour, k=5):
     """
     Input: EPA dataframe, list of any other dataframes to be added in via KNN, and desired day/time
     Other df format must be ['datetime', 'latitude','longitude','name','data1','data2'..]
@@ -184,31 +232,19 @@ def get_final_timevarying_dataframe(df_epa, other_dfs, month=5, day=2, hour=8, k
 
 # In[13]:
 
-#jake note: add PA, if cell doesn't run w PA, then do PA merge
-df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac])
-df_analysis = df_analysis.drop(columns=['latitude_y','longitude_y'])
+df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac,df_pa], month=5,day=2,hour=8)
+df_analysis = df_analysis.drop(columns=['latitude_y','longitude_y','id','latitude','longitude'])
 df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x':'longitude'})
 
 
 # In[14]:
 
 
-df_analysis = df_analysis.merge(df_truck, on=['latitude','longitude'], how='left')
-#Jake note: might need to do another merge with PA data if the cell above doesn't work - perhaps due to lack of datetime 
+df_analysis = df_analysis.merge(df_truck, on=['latitude','longitude'], how='left') 
 
 # ## <font color='yellow'>Running some tests</font>
 # 
 # OLS? RIDGE? LASSO? BEST SUBSET?!?!?!
-
-# In[]
-
-df_analysis = df_analysis.merge(df_pa, on=["latitude","longitude"], how="left")
-
-
-# In[15]:
-
-
-df_analysis.head(1)
 
 
 # In[16]:
@@ -445,91 +481,548 @@ plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
 plt.title('Coefficient Values (Betas)')
 plt.xlabel('Coefficients')
 plt.ylabel('Coefficient Values')
+plt.savefig('Initial_run.png', bbox_inches='tight')
 
 
 
+#Start of run #2 - June 7 8 am datetime
+# %%
+df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac,df_pa], month=6,day=7,hour=8)
+df_analysis = df_analysis.drop(columns=['latitude_y','longitude_y','id','latitude','longitude'])
+df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x':'longitude'})
 
+
+# In[14]:
+df_analysis = df_analysis.merge(df_truck, on=['latitude','longitude'], how='left') 
+
+# ## <font color='yellow'>Running some tests</font>
+# 
+# OLS? RIDGE? LASSO? BEST SUBSET?!?!?!
+
+# In[16]:
+
+#First should drop the nulls, and drop precip, which is mostly nulls
+df_analysis = df_analysis.drop(columns=['precip_accum_one_hour_set_1'])
+
+# In[17]:
+
+nullcount = df_analysis.isnull().sum(axis=1)
+df_analysis = df_analysis[nullcount == 0].reset_index(drop=True)
+
+# In[24]:
+
+y = df_analysis['epa_meas']
+X_raw = df_analysis.drop(columns=['epa_meas','latitude','longitude','name','datetime'])
+scaler = StandardScaler()
+X = pd.DataFrame(scaler.fit_transform(X_raw), index=X_raw.index, columns=X_raw.columns)
+
+# In[26]:
+
+
+#Getting training and testing data
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2, random_state=99)
+
+
+# In[28]:
+
+
+mses_all = {} 
+coefs_all = {}
+for model in [Ridge, Lasso, LinearRegression]:
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+
+# In[29]:
+mses_all
+
+# In[30]:
+
+coefs_all
+
+
+# In[33]:
+
+
+#Redoing three models, w optimized alphas
+mses_all = {} #new dict approach. weird i can call w/ just the name Lasso when stored as longer term
+coefs_all = {}
+
+models = [Ridge, Lasso, LinearRegression]
+alphas = [alphas_ridge[np.argmin(mses_ridge)], alphas_lasso[np.argmin(mses_lasso)], 0]
+
+for model, alpha in zip(models,alphas):
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test, alpha)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+
+# In[34]:
+
+
+mses_all
+
+
+# In[35]:
+
+
+coefs_all
+
+
+# ## <font color='yellow'>Hmmm... On to best subset</font>
+# 
+# So Lasso wins, but OLS is very bizarre (gigantic MSE), even though it was normalized.
+# Maybe we should normalize by hand?
+
+#jake notes: I put this in whatsapp but I'm actually seeing that LR wins
+
+# In[ ]:
+#Visualization of Beta Coefficients
+
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+plt.savefig('second_run.png', bbox_inches='tight')
+
+
+#Start of Run 3 - May 14 6:00 am
+# %%
+df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac,df_pa], month=5,day=14,hour=6)
+df_analysis = df_analysis.drop(columns=['latitude_y','longitude_y','id','latitude','longitude'])
+df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x':'longitude'})
+
+
+# In[14]:
+df_analysis = df_analysis.merge(df_truck, on=['latitude','longitude'], how='left') 
+
+
+# In[16]:
+
+df_analysis = df_analysis.drop(columns=['precip_accum_one_hour_set_1'])
+
+# In[17]:
+
+nullcount = df_analysis.isnull().sum(axis=1)
+df_analysis = df_analysis[nullcount == 0].reset_index(drop=True)
+
+# In[24]:
+
+y = df_analysis['epa_meas']
+X_raw = df_analysis.drop(columns=['epa_meas','latitude','longitude','name','datetime'])
+scaler = StandardScaler()
+X = pd.DataFrame(scaler.fit_transform(X_raw), index=X_raw.index, columns=X_raw.columns)
+
+# In[26]:
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2, random_state=99)
+
+
+# In[28]:
+
+
+mses_all = {} 
+coefs_all = {}
+for model in [Ridge, Lasso, LinearRegression]:
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+
+# In[29]:
+mses_all
+
+# In[30]:
+
+coefs_all
+
+
+# In[33]:
+
+
+#Redoing three models, w optimized alphas
+mses_all = {}
+coefs_all = {}
+
+models = [Ridge, Lasso, LinearRegression]
+alphas = [alphas_ridge[np.argmin(mses_ridge)], alphas_lasso[np.argmin(mses_lasso)], 0]
+
+for model, alpha in zip(models,alphas):
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test, alpha)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+
+# In[34]:
+
+
+mses_all
+
+
+# In[35]:
+
+
+coefs_all
+
+
+# In[ ]:
+#Visualization of Beta Coefficients
+
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+plt.savefig('third_run.png', bbox_inches='tight')
+
+# In[]
+#Start of Run 4 - Jan 3 12:00 pm
+# %%
+df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac,df_pa], month=1,day=3,hour=12)
+df_analysis = df_analysis.drop(columns=['latitude_y','longitude_y','id','latitude','longitude'])
+df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x':'longitude'})
+
+
+# In[14]:
+df_analysis = df_analysis.merge(df_truck, on=['latitude','longitude'], how='left') 
+
+
+# In[16]:
+
+df_analysis = df_analysis.drop(columns=['precip_accum_one_hour_set_1'])
+
+# In[17]:
+
+nullcount = df_analysis.isnull().sum(axis=1)
+df_analysis = df_analysis[nullcount == 0].reset_index(drop=True)
+
+# In[24]:
+
+y = df_analysis['epa_meas']
+X_raw = df_analysis.drop(columns=['epa_meas','latitude','longitude','name','datetime'])
+scaler = StandardScaler()
+X = pd.DataFrame(scaler.fit_transform(X_raw), index=X_raw.index, columns=X_raw.columns)
+
+# In[26]:
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2, random_state=99)
+
+
+# In[28]:
+
+
+mses_all = {} 
+coefs_all = {}
+for model in [Ridge, Lasso, LinearRegression]:
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+
+# In[29]:
+mses_all
+
+# In[30]:
+
+coefs_all
+
+
+# In[33]:
+
+
+#Redoing three models, w optimized alphas
+mses_all = {}
+coefs_all = {}
+
+models = [Ridge, Lasso, LinearRegression]
+alphas = [alphas_ridge[np.argmin(mses_ridge)], alphas_lasso[np.argmin(mses_lasso)], 0]
+
+for model, alpha in zip(models,alphas):
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test, alpha)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+
+# In[34]:
+
+
+mses_all
+
+
+# In[35]:
+
+
+coefs_all
+
+
+# In[ ]:
+#Visualization of Beta Coefficients
+
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+plt.savefig('fourth_run.png', bbox_inches='tight')
+
+
+# %%
+# In[]
+#Start of Run 5 - Dec 22 4:00 pm
+df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac,df_pa], month=12,day=22,hour=16)
+df_analysis = df_analysis.drop(columns=['latitude_y','longitude_y','id','latitude','longitude'])
+df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x':'longitude'})
+df_analysis = df_analysis.merge(df_truck, on=['latitude','longitude'], how='left')
+df_analysis = df_analysis.drop(columns=['precip_accum_one_hour_set_1'])
+
+# In[17]:
+
+nullcount = df_analysis.isnull().sum(axis=1)
+df_analysis = df_analysis[nullcount == 0].reset_index(drop=True)
+
+# In[24]:
+
+y = df_analysis['epa_meas']
+X_raw = df_analysis.drop(columns=['epa_meas','latitude','longitude','name','datetime'])
+scaler = StandardScaler()
+X = pd.DataFrame(scaler.fit_transform(X_raw), index=X_raw.index, columns=X_raw.columns)
+
+# In[26]:
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2, random_state=99)
+
+
+# In[28]:
+
+
+mses_all = {} 
+coefs_all = {}
+for model in [Ridge, Lasso, LinearRegression]:
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+
+# In[29]:
+mses_all
+
+# In[30]:
+
+coefs_all
+
+# In[33]:
+
+#Redoing three models, w optimized alphas
+mses_all = {}
+coefs_all = {}
+
+models = [Ridge, Lasso, LinearRegression]
+alphas = [alphas_ridge[np.argmin(mses_ridge)], alphas_lasso[np.argmin(mses_lasso)], 0]
+
+for model, alpha in zip(models,alphas):
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test, alpha)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+
+# In[34]:
+
+
+mses_all
+
+
+# In[35]:
+
+
+coefs_all
+
+
+# In[ ]:
+#Visualization of Beta Coefficients
+
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+plt.savefig('fifth_run.png', bbox_inches='tight')
 
 #In[]
+#Start of Run 6 - Nov 8 7:00 am (Camp Fire Ignition)
+df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac,df_pa], month=11,day=8,hour=7)
+df_analysis = df_analysis.drop(columns=['latitude_y','longitude_y','id','latitude','longitude'])
+df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x':'longitude'})
+df_analysis = df_analysis.merge(df_truck, on=['latitude','longitude'], how='left')
+df_analysis = df_analysis.drop(columns=['precip_accum_one_hour_set_1'])
 
-#countif on ideal hour to analyze
+# In[17]:
 
-#EPA
+nullcount = df_analysis.isnull().sum(axis=1)
+df_analysis = df_analysis[nullcount == 0].reset_index(drop=True)
 
-df_epa = pd.read_csv("EPA_Data_MultiPointModel.csv")
-df_epa.head()
+# In[24]:
 
-group_epa = df_epa.groupby("datetime")
-group_epa.head()
-epa_counts = group_epa["datetime"].value_counts()
-epa_counts.head(20)
+y = df_analysis['epa_meas']
+X_raw = df_analysis.drop(columns=['epa_meas','latitude','longitude','name','datetime'])
+scaler = StandardScaler()
+X = pd.DataFrame(scaler.fit_transform(X_raw), index=X_raw.index, columns=X_raw.columns)
 
-max(epa_counts) # most common is 147 times
+# In[26]:
 
-EPA = epa_counts.loc[epa_counts==147]
-print(EPA)
-
-#May 2 at 8:00
-#June 7 at 8:00
-
-# In[]
-
-#NOAA
-
-df_noaa = pd.read_csv("NOAA_Data_MultiPointModel.csv")
-df_noaa.head()
-
-group_noaa = df_noaa.groupby("datetime")
-group_noaa.head()
-noaa_counts = group_noaa["datetime"].value_counts()
-noaa_counts.head(5)
-
-max(noaa_counts) # most common is 118 times
-
-NOAA = noaa_counts.loc[noaa_counts==118]
-print(NOAA)
-
-#seems like every datetime in NOAA is 118 times
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2, random_state=99)
 
 
-# In[]
-
-#BEACON
-
-df_beac = pd.read_csv("Beacon_Data_MultiPointModel.csv")
-df_beac.head(1)
-
-group_beac = df_beac.groupby("datetime")
-group_beac.head()
-beac_counts = group_beac["datetime"].value_counts()
-beac_counts.head(5)
-
-max(beac_counts) # most common is 8 times...
-
-BEAC = beac_counts.loc[beac_counts==8]
-print(BEAC)
-
-#seems like ever datetime in BEAC appears 8 times.
-
-# In[]
-#PA
-
-df_pa = pd.read_csv("pa_melted.csv")
-df_pa.head(10)
-
-group_pa = df_pa.groupby("datetime")
-group_pa.head()
-pa_counts = group_pa["datetime"].value_counts()
-pa_counts.head(5)
-
-max(pa_counts) # most common is 128 times...
-
-PA = pa_counts.loc[pa_counts==128]
-print(PA)
-
-#seems like it's all in Feb
+# In[28]:
 
 
+mses_all = {} 
+coefs_all = {}
+for model in [Ridge, Lasso, LinearRegression]:
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test)
+    mses_all[model] = mse
+    coefs_all[model] = coef
 
 
+# In[29]:
+mses_all
 
+# In[30]:
+
+coefs_all
+
+# In[33]:
+
+#Redoing three models, w optimized alphas
+mses_all = {}
+coefs_all = {}
+
+models = [Ridge, Lasso, LinearRegression]
+alphas = [alphas_ridge[np.argmin(mses_ridge)], alphas_lasso[np.argmin(mses_lasso)], 0]
+
+for model, alpha in zip(models,alphas):
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test, alpha)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+# In[34]:
+mses_all
+
+
+# In[35]:
+
+
+coefs_all
+
+
+# In[ ]:
+#Visualization of Beta Coefficients
+
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+plt.savefig('sixth_run.png', bbox_inches='tight')
+
+#In[]
+#Start of Run 6 - Nov 11 7:00 am (72 hrs after Camp Fire Ignition)
+df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac,df_pa], month=11,day=11,hour=7)
+df_analysis = df_analysis.drop(columns=['latitude_y','longitude_y','id','latitude','longitude'])
+df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x':'longitude'})
+df_analysis = df_analysis.merge(df_truck, on=['latitude','longitude'], how='left')
+df_analysis = df_analysis.drop(columns=['precip_accum_one_hour_set_1'])
+
+# In[17]:
+
+nullcount = df_analysis.isnull().sum(axis=1)
+df_analysis = df_analysis[nullcount == 0].reset_index(drop=True)
+
+# In[24]:
+
+y = df_analysis['epa_meas']
+X_raw = df_analysis.drop(columns=['epa_meas','latitude','longitude','name','datetime'])
+scaler = StandardScaler()
+X = pd.DataFrame(scaler.fit_transform(X_raw), index=X_raw.index, columns=X_raw.columns)
+
+# In[26]:
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2, random_state=99)
+
+
+# In[28]:
+
+
+mses_all = {} 
+coefs_all = {}
+for model in [Ridge, Lasso, LinearRegression]:
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+
+# In[29]:
+mses_all
+
+# In[30]:
+
+coefs_all
+
+# In[33]:
+
+#Redoing three models, w optimized alphas
+mses_all = {}
+coefs_all = {}
+
+models = [Ridge, Lasso, LinearRegression]
+alphas = [alphas_ridge[np.argmin(mses_ridge)], alphas_lasso[np.argmin(mses_lasso)], 0]
+
+for model, alpha in zip(models,alphas):
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test, alpha)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+# In[34]:
+mses_all
+
+
+# In[35]:
+
+
+coefs_all
+
+
+# In[ ]:
+#Visualization of Beta Coefficients
+
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+plt.savefig('seventh_run.png', bbox_inches='tight')
+
+# %%

@@ -69,6 +69,12 @@ cols = ['datetime', 'latitude', 'longitude', 'name', '100mAADT12', '100mFAF12', 
 df_truck = df_truck[cols]
 df_truck.head(1)
 
+# In[]
+#need to get PA data in final format
+df_pa = pd.read_csv("pa_full.csv")
+df_pa.rename(columns={"lat":"latitude","lon":"longitude"})
+df_pa.head(10)
+
 
 # ## <font color='yellow'>Selecting a date and time</font>
 # 
@@ -98,10 +104,10 @@ def select_datetime(df, month, day, hour, year=2018):
 
 
 #Testing w/ each DF:
-df_epa_jan3 = select_datetime(df_epa, 1, 3, 12)
-df_noaa_jan3 = select_datetime(df_noaa, 1, 3, 12)
-df_beac_jan3 = select_datetime(df_beac, 1, 3, 12)
-
+df_epa_jan3 = select_datetime(df_epa, 5, 2, 8)
+df_noaa_jan3 = select_datetime(df_noaa, 5, 2, 8)
+df_beac_jan3 = select_datetime(df_beac, 5, 2, 8)
+df_pa_jan3 = select_datetime(df_pa, 5, 2, 8)
 
 # ## <font color='yellow'>Selecting relevant data points: KNN</font>
 # 
@@ -156,7 +162,7 @@ def get_KNN_avgs(df_epa, df_other, k=5):
 # In[12]:
 
 
-def get_final_timevarying_dataframe(df_epa, other_dfs, month=1, day=3, hour=12, k=5):
+def get_final_timevarying_dataframe(df_epa, other_dfs, month=5, day=2, hour=8, k=5):
     """
     Input: EPA dataframe, list of any other dataframes to be added in via KNN, and desired day/time
     Other df format must be ['datetime', 'latitude','longitude','name','data1','data2'..]
@@ -178,7 +184,7 @@ def get_final_timevarying_dataframe(df_epa, other_dfs, month=1, day=3, hour=12, 
 
 # In[13]:
 
-
+#jake note: add PA, if cell doesn't run w PA, then do PA merge
 df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac])
 df_analysis = df_analysis.drop(columns=['latitude_y','longitude_y'])
 df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x':'longitude'})
@@ -188,11 +194,16 @@ df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x'
 
 
 df_analysis = df_analysis.merge(df_truck, on=['latitude','longitude'], how='left')
-
+#Jake note: might need to do another merge with PA data if the cell above doesn't work - perhaps due to lack of datetime 
 
 # ## <font color='yellow'>Running some tests</font>
 # 
 # OLS? RIDGE? LASSO? BEST SUBSET?!?!?!
+
+# In[]
+
+df_analysis = df_analysis.merge(df_pa, on=["latitude","longitude"], how="left")
+
 
 # In[15]:
 
@@ -211,15 +222,16 @@ df_analysis = df_analysis.drop(columns=['precip_accum_one_hour_set_1'])
 
 
 nullcount = df_analysis.isnull().sum(axis=1)
-df_analysis = df_analysis[nullcount == 0].reset_index(drop=True) #only lost 1 data pt
+df_analysis = df_analysis[nullcount == 0].reset_index(drop=True)
 
 
 # In[24]:
-
+from sklearn.preprocessing import StandardScaler
 
 y = df_analysis['epa_meas']
-X = df_analysis.drop(columns=['epa_meas','latitude','longitude','datetime','name'])
-#precip has nans
+X_raw = df_analysis.drop(columns=['epa_meas','latitude','longitude','datetime','name'])
+scaler = StandardScaler()
+X = pd.DataFrame(scaler.fit_transform(X_raw), index=X_raw.index, columns=X_raw.columns)
 
 
 # In[25]:
@@ -297,6 +309,19 @@ mses_all
 
 
 coefs_all
+
+# In[]
+#Visualization of beta values
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+
 
 
 # In[31]:
@@ -406,7 +431,104 @@ coefs_all
 # So Lasso wins, but OLS is very bizarre (gigantic MSE), even though it was normalized.
 # Maybe we should normalize by hand?
 
+#jake notes: I put this in whatsapp but I'm actually seeing that LR wins
+
 # In[ ]:
+#Visualization of Beta Coefficients
+
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+
+
+
+
+
+#In[]
+
+#countif on ideal hour to analyze
+
+#EPA
+
+df_epa = pd.read_csv("EPA_Data_MultiPointModel.csv")
+df_epa.head()
+
+group_epa = df_epa.groupby("datetime")
+group_epa.head()
+epa_counts = group_epa["datetime"].value_counts()
+epa_counts.head(20)
+
+max(epa_counts) # most common is 147 times
+
+EPA = epa_counts.loc[epa_counts==147]
+print(EPA)
+
+#May 2 at 8:00
+#June 7 at 8:00
+
+# In[]
+
+#NOAA
+
+df_noaa = pd.read_csv("NOAA_Data_MultiPointModel.csv")
+df_noaa.head()
+
+group_noaa = df_noaa.groupby("datetime")
+group_noaa.head()
+noaa_counts = group_noaa["datetime"].value_counts()
+noaa_counts.head(5)
+
+max(noaa_counts) # most common is 118 times
+
+NOAA = noaa_counts.loc[noaa_counts==118]
+print(NOAA)
+
+#seems like every datetime in NOAA is 118 times
+
+
+# In[]
+
+#BEACON
+
+df_beac = pd.read_csv("Beacon_Data_MultiPointModel.csv")
+df_beac.head(1)
+
+group_beac = df_beac.groupby("datetime")
+group_beac.head()
+beac_counts = group_beac["datetime"].value_counts()
+beac_counts.head(5)
+
+max(beac_counts) # most common is 8 times...
+
+BEAC = beac_counts.loc[beac_counts==8]
+print(BEAC)
+
+#seems like ever datetime in BEAC appears 8 times.
+
+# In[]
+#PA
+
+df_pa = pd.read_csv("pa_melted.csv")
+df_pa.head(10)
+
+group_pa = df_pa.groupby("datetime")
+group_pa.head()
+pa_counts = group_pa["datetime"].value_counts()
+pa_counts.head(5)
+
+max(pa_counts) # most common is 128 times...
+
+PA = pa_counts.loc[pa_counts==128]
+print(PA)
+
+#seems like it's all in Feb
+
 
 
 

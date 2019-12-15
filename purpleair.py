@@ -76,8 +76,17 @@ except Exception as e:
 new_df = pd.DataFrame.from_dict(j["results"])
 
 #Create New DF with the columns we want to pull into R
-df_for_r = new_df[["DEVICE_LOCATIONTYPE","THINGSPEAK_PRIMARY_ID","THINGSPEAK_PRIMARY_ID_READ_KEY","THINGSPEAK_SECONDARY_ID","THINGSPEAK_SECONDARY_ID_READ_KEY"]]
+df_for_r = new_df[["ID","DEVICE_LOCATIONTYPE","THINGSPEAK_PRIMARY_ID","THINGSPEAK_PRIMARY_ID_READ_KEY","THINGSPEAK_SECONDARY_ID","THINGSPEAK_SECONDARY_ID_READ_KEY","Lat","Lon","A_H","ParentID","LastSeen","Flag"]]
 df_for_r["THINGSPEAK_PRIMARY_ID"] = df_for_r["THINGSPEAK_PRIMARY_ID"].astype(int)
+
+#Drop rows if A_H is true
+df_for_r = df_for_r[df_for_r.A_H != "true"]
+
+#Drop rows if Flag is 1
+df_for_r = df_for_r[df_for_r.Flag != 1]
+
+#Convert LastSeen column to datetime - result is weird
+df_for_r["LastSeen"] = pd.to_datetime(df_for_r["LastSeen"],utc=True)
 
 #Create DF with only the keys that are listed as outside
 outside = df_for_r.loc[df_for_r["DEVICE_LOCATIONTYPE"] == "outside"]
@@ -93,8 +102,12 @@ df_for_r.loc[df_for_r["THINGSPEAK_PRIMARY_ID"].isin(keys), "DEVICE_LOCATIONTYPE"
 
 #final copy for export to r - only outside data
 final_DF = df_for_r.loc[df_for_r["DEVICE_LOCATIONTYPE"] == "outside"]
+final_DF['Lat_extra'] = final_DF['Lat']
+final_DF['Lon_extra'] = final_DF['Lon']
+final_DF = final_DF.drop(columns=["Flag","A_H"])
+
 
 #Save as CSV for import to R
-final_DF.to_csv("for_import.csv", sep = ",", index = False, encoding = 'utf-8')
+final_DF.to_csv("for_importv3.csv", sep = ",", index = False, encoding = 'utf-8')
 
 

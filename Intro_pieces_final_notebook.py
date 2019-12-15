@@ -107,6 +107,20 @@ Our NOAA data (like our other data) was collected through a REST API. NOAA maint
 temperature. Our dataframe consists of 9 columns and 1033680 observations spread across CA in 2018. The datetimes in this particular frame are for each hour at different weather 
 stations throughout CA. Each row (observation) is a measurement taken at a specific station for a given hour during the year. 
 
+Trucking Data:
+
+df_truck = pd.read_csv("Truck_Data_MultiPointModel.csv")
+df_truck.drop(columns=['Unnamed: 0','Unnamed: 0.1'], inplace=True)
+df_truck = df_truck.rename(columns={'0':'latitude','1':'longitude'})
+df_truck['datetime'] = 'none'
+df_truck['name'] = 'none'
+cols = ['datetime', 'latitude', 'longitude', 'name', '100mAADT12', '100mFAF12', '100mNONFAF12',
+       '100mYKTON12', '100mKTONMILE12', '1000mAADT12', '1000mFAF12',
+       '1000mNONFAF12', '1000mYKTON12', '1000mKTONMILE12', '5000mAADT12',
+       '5000mFAF12', '5000mNONFAF12', '5000mYKTON12', '5000mKTONMILE12']
+df_truck = df_truck[cols]
+df_truck.head(10)
+
 
 # In[ ]:
 
@@ -133,6 +147,91 @@ In this section you will walk through the data cleaning and merging process.  Ex
 In this section you should provide a tour through some of the basic trends and patterns in your data.  This includes providing initial plots to summarize the data, such as box plots, histograms, trends over time, scatter plots relating one variable or another.  
 
 [Chapter 6](https://www.textbook.ds100.org/ch/06/viz_intro.html) of the DS100 textbook might be helpful for providing ideas for visualizations that describe your data.  
+
+Purple Air:
+
+df_pa.head(10)
+
+plt.figure(figsize=(15, 5))
+plt.subplot(1, 3, 1)
+plt.plot(df_pa["PM2.5 (ATM)"],df_pa["PM2.5 (CF=1)"])
+plt.title("PM2.5 with no CF relative to PM2.5 with CF")
+plt.xlabel("PM2.5 with no correction factor")
+plt.ylabel("PM2.5 with correction factor")
+
+plt.subplot(1,3,2)
+plt.plot(df_pa["PM2.5 (ATM)"],df_pa["PM1.0 (ATM)"])
+plt.title("Visualization of PM2.5 relative to PM1.0")
+plt.xlabel("PM2.5")
+plt.ylabel("PM1.0")
+
+plt.subplot(1,3,3)
+plt.plot(df_pa["PM2.5 (ATM)"],df_pa["PM10.0 (ATM)"])
+plt.title("Visualization of PM2.5 relative to PM10.0")
+plt.xlabel("PM2.5")
+plt.ylabel("PM10.0")
+
+Our visualizations reveal a few notable insights. Looking at our comparison of PM2.5 to the PM2.5 with a correction factor,
+it appears as though a constant correction factor is applied across the board (i.e., the slope of the line is constant). 
+This might mean that purple air sensors are all initially biased in the same direction. Our second visualization comparing PM2.5
+to PM1.0 shows that for PM2.5 values above 2000, the relationship to PM1.0 is constant. Interestingly se see a lot of noise below 
+2000 on the x axis, meaning that there might be some threshold of PM2.5 that we'd need to see before we see a constant linear relationship
+between the two variables. Our last comparison of PM2.5 to PM10.0 reveals a similar trend. Let's view these relationships in a different format:
+
+pa_sample = df_pa.sample(n=60,random_state=1)
+
+plt.scatter(pa_sample["datetime"], pa_sample["PM1.0 (ATM)"], s = 5, color = 'c')
+plt.title("2018 PM 1.0 readings")
+plt.xlabel("Date")
+plt.ylabel("PM readings")
+plt.show()
+
+plt.scatter(pa_sample["datetime"], pa_sample["PM10.0 (ATM)"], s = 5, color = 'c')
+plt.title("2018 PM 10.0 readings")
+plt.xlabel("Date")
+plt.ylabel("PM readings")
+plt.show()
+
+plt.scatter(pa_sample["datetime"], pa_sample["PM2.5 (CF=1)"], s = 5, color = 'c')
+plt.title("2018 PM 2.5 with CF readings")
+plt.xlabel("Date")
+plt.ylabel("PM readings")
+plt.show()
+
+The scatter plots above show us the distribution of our random sample of Purple Air PM readings over 2018.
+Let's look at the raw scatter plot of PM2.5 readings with no correction factor included:
+
+plt.scatter(pa_sample["datetime"], pa_sample["PM2.5 (ATM)"], s = 5, color = 'c')
+plt.title("2018 PM 2.5 readings")
+plt.xlabel("Date")
+plt.ylabel("PM readings")
+plt.show()
+
+Based on our scatterplot, we see that most of our readings from this sample fall between 0 and 20 throughout the year. There are
+values that exceed 20 here and there, but they seem to be on the higher side of the sample. If we plot another histogram of our sample
+we can see this:
+
+pa_sample['PM2.5 (ATM)'].plot.hist(bins=60,range=(0,70))
+
+
+EPA: 
+
+df_epa['epa_meas'].plot.hist(bins=100,range=(0,120))
+
+We included this histogram above, but we include it again to higlight the distribution of our EPA readings that we
+are interested in forecasting. 
+
+epa_sample = df_epa.sample(n=60,random_state=1)
+
+plt.scatter(epa_sample["datetime"], epa_sample["epa_meas"], s = 5, color = 'c')
+plt.title("2018 EPA PM 2.5 readings")
+plt.xlabel("Date")
+plt.ylabel("PM readings")
+plt.show()
+
+Because our data set is so large, we needed to take a random sample to actually plot the readings over the time of the year.
+It appears as though the readings are mostly consistent throughout the year with one outlier in the middle of the year, and a few higher
+points scattered throughout.
 
 
 # In[ ]:

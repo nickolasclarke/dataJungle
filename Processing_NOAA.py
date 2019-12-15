@@ -130,13 +130,34 @@ df_noaa.head(1)
 df_noaa = df_noaa.rename(columns={'Station_ID':'name', 'wind_direction_set_1':'wind_dir', 'wind_speed_set_1':'wind_speed','pressure_set_1d':'pressure','precip_accum_one_hour_set_1':'precip', 'air_temp_set_1':'temp'})
 
 # %% [markdown]
-# ### <font color='yellow'>Shaping data for single-point model</font>
+# ### Trying to fix datetimes to align with EPA/Beacon sensors
+# 
+
+# %%
+df_noaa['dt'] = pd.to_datetime(df_noaa['datetime'])
+
+
+# %%
+#adding a date+hour column like EPA/Beacon have
+dts = []
+for d in df_noaa['dt']:
+    date = datetime.date(year=d.year ,day=d.day, month=d.month)
+    dts.append(datetime.datetime.combine(date, datetime.time(d.hour)))
+
+
+# %%
+df_noaa['datetime'] = dts
+df_noaa = df_noaa.drop(columns=['dt'])
+
 
 # %%
 df_noaa.head()
 
+# %% [markdown]
+# ### <font color='yellow'>Shaping data for single-point model</font>
 
 # %%
+df_noaa_wlonlat = df_noaa
 df_noaa = df_noaa.drop(columns=['latitude','longitude'])
 
 
@@ -167,7 +188,27 @@ DataFrameDict['wind_dir'].head(1)
 
 
 # %%
-df_noaa_output = pd.concat(DataFrameDict, axis=1)
+#df_noaa_output = pd.concat(DataFrameDict, axis=1) -- this would work beautifully but some indexing problem--maybe from datetimes--is generating all NaNs
+
+
+# %%
+#so instead, we will dumbly merge by hand, bc out of time for this
+
+
+# %%
+x = DataFrameDict['wind_dir'].merge(DataFrameDict['wind_speed'], on='datetime', how='left')
+x = x.merge(DataFrameDict['pressure'], on='datetime', how='left')
+x = x.merge(DataFrameDict['precip'], on='datetime', how='left')
+x = x.merge(DataFrameDict['temp'], on='datetime', how='left')
+x.shape
+
+
+# %%
+df_noaa_output = x
+df_noaa_output.head()
+
+
+# %%
 df_noaa_output.to_csv("NOAA_Data_SinglePointModel.csv")
 
 
@@ -180,11 +221,8 @@ df_noaa_output.to_csv("NOAA_Data_SinglePointModel.csv")
 # ### <font color='yellow'>Shaping data for multi-point model</font>
 
 # %%
+df_noaa = df_noaa_wlonlat
 df_noaa.head()
-
-
-# %%
-df_noaa.columns.tolist()
 
 
 # %%

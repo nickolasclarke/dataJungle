@@ -433,3 +433,347 @@ cols = ['datetime', 'latitude', 'longitude', 'name', '100mAADT12', '100mFAF12', 
 df_truck = df_truck[cols]
 df_truck.head(10)
 
+# %% [markdown]
+# ## Forecasting and Prediction Modeling (25 points)
+# 
+# This section is where the rubber meets the road.  In it you must:
+# 1. Explore at least 3 prediction modeling approaches, ranging from the simple (e.g. linear regression, KNN) to the complex (e.g. SVM, random forests, Lasso).  
+# 2. Motivate all your modeling decisions.  This includes parameter choices (e.g., how many folds in k-fold cross validation, what time window you use for averaging your data) as well as model form (e.g., If you use regression trees, why?  If you include nonlinear features in a regression model, why?). 
+# 1. Carefully describe your cross validation and model selection process.  You should partition your data into training, testing and *validation* sets.
+# 3. Evaluate your models' performance in terms of testing and validation error.  Do you see evidence of bias?  Where do you see evidence of variance? 
+# 4. Very carefully document your workflow.  We will be reading a lot of projects, so we need you to explain each basic step in your analysis.  
+# 5. Seek opportunities to write functions allow you to avoid doing things over and over, and that make your code more succinct and readable. 
+# 
+# %% [markdown]
+# ### Single-point prediction model
+# In summary, this model attempts to predict PM2.5 levels at the location of a specific EPA sensor (as described in the data cleaning section) in the Bay Area. It combines EPA data, Beacon data, NOAA data (across 5 data types), and PurpleAir PM2.5 data.
+# 
+# In terms of modeling approaches, this single-point model draws on OLS, lasso, ridge, and the elastic net. We ran into two principal issues in our data, which motivated our investigation of sub-questions:
+# * **Data quality:** Many of our predictors had incomplete data for the year (ie, less than 8760 hours' worth of data). We explored various "cutoffs" designating the maximum number of missing data points that any given column could have in order to remain in the dataset. After setting the cutoff, we removed any observations that had any NaNs remaining--thus, increasing the cutoff led to fewer observations being used for the model.
+# * **Collinearity:** Because collinearity was a big issue in our data for both PurpleAir and NOAA (ie, nearby sensors had highly correlated readings), both lasso and elastic net often failed to converge during gradient descent. As such, we leaned on ridge and OLS predominantly. However, we also tried to directly address collinearity per the suggestion of ISLR, by building a function to purge a dataframe of variables exceeding a certain correlation threshold.
+# 
+
+# %%
+#Loading dependencies for models
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import Ridge
+from sklearn.linear_model import Lasso
+from sklearn.linear_model import ElasticNet
+from sklearn.metrics import mean_squared_error
+
+
+# %%
+#Loading four dataframes
+df_beac = pd.read_csv(filehome+"/Beacon_Data_SinglePointModel.csv")
+df_epa = pd.read_csv(filehome+"/EPA_Data_SinglePointModel.csv")
+df_noaa = pd.read_csv(filehome+"/NOAA_Data_SinglePointModel.csv")
+df_pa = pd.read_csv(filehome+"/PA_Data_SinglePointModel.csv")
+
+
+# %%
+
+
+# %% [markdown]
+# In the course of building the model, we noticed that the lasso model wasn't converging. When features are highly correlated, as we learned in class, lasso can become unstable. As such, we decided to A) investigate what correlation was present in the NOAA and PurpleAir datasets (which are contributing the bulk of the predictors and are very likely correlated), and B) see if we could address it by removing some of the semi-redundant variables. (This is one of the methods suggested by ISLR, although they don't give much detail on how to do it--so we did a few sensitivities.)
+# 
+# We wrote a function to identify which variables in a dataframe exceed a certain correlation limit and to drop the redundant rows (e.g., if one variable is 98% correlated with another, it's not adding much value to the model). 
+
+# %%
+def drop_correlated_cols(df, limit=.95):
+    """
+    Takes a dataframe with many correlated features, and drops all but one that have a correlation above a certain cutoff
+    Returns the dataframe subsetted to only include features not correlated above a certain cutoff with anything else
+    """
+
+    cor = df.corr().abs()
+
+    to_drop = []
+    dont_drop = []
+
+    for column in cor.columns:
+        correlated_columns = cor.index[cor.loc[:,column]>limit].tolist()
+        x = correlated_columns[1:] #want to get rid of all but one
+        if len(correlated_columns) > 0:
+            if correlated_columns[0] not in to_drop:
+                dont_drop.append(correlated_columns[0]) #making sure we don't put this in the to-drop list later
+        for i in range(len(x)):
+            to_drop.append(x[i])
+    
+
+    all_cols = set(cor.columns)
+    drop_cols = set(to_drop) - set(dont_drop)
+    keep_cols = all_cols - drop_cols
+    keep_cols.add('datetime')
+
+    return df.loc[:,keep_cols]
+
+# %% [markdown]
+# We used this function to "purge" the NOAA and PurpleAir datasets of a certain amount of correlated data. See the visual representation of the correlation matrices for each below. Many of the nearly-1 columns are gone, decreasing the amount of bright yellow you see, and the overall number of features is reduced.
+
+# %%
+lim = .95  #max correlation coefficient that will be allowed before throwing out a feature
+
+#Creating 'purged' NOAA dataframe
+ncor1 = df_noaa.corr()
+df_noaa_new = drop_correlated_cols(df_noaa, limit=lim)
+ncor2 = df_noaa_new.corr()
+
+#Creating 'purged' PurpleAir dataframe
+pcor1 = df_pa.corr()
+df_pa_new = drop_correlated_cols(df_pa, limit=lim)
+pcor2 = df_pa_new.corr()
+
+
+# %%
+plt.figure(figsize=(10,5))
+
+plt.subplot(1,2,1)
+plt.imshow(ncor1)
+plt.title("NOAA data, all predictors")
+plt.colorbar()
+
+plt.subplot(1,2,2)
+plt.imshow(ncor2)
+plt.title("NOAA data, predictors with >"+str(lim)+" \n correlation coeff. dropped")
+plt.colorbar()
+plt.savefig("NOAA--85.png")
+
+
+# %%
+plt.figure(figsize=(10,5))
+
+plt.subplot(1,2,1)
+plt.imshow(pcor1)
+plt.title("PurpleAir data, all predictors")
+plt.colorbar()
+
+plt.subplot(1,2,2)
+plt.imshow(pcor2)
+plt.title("PurpleAir data, predictors with >"+str(lim)+" \n correlation coeff. dropped")
+plt.colorbar()
+plt.savefig("PA--85.png")
+
+# %% [markdown]
+# Next we decide how many missing values we are willing to tolerate, and designate a "cutoff" we use to drop columns with too many NaNs. We then remove each row with any NaNs in it, so that we can analyze a clean, complete dataframe. We keep track of the cutoff as well as the resulting number of observations and predictors we're working with, in case it affords any insight into our model's functioning...
+# 
+# We then formatted our dataframe into X's and y's to be able to feed into sklearn models. Importantly, we standardized our data, because the scale of the data makes a dfiference when using ridge.
+# 
+# We packaged this into one function to be able to more easily manipulate the cutoff.
+
+# %%
+#Merging dataframes
+bigdf = df_epa.merge(df_beac, how='left', on='datetime').reset_index(drop=True)
+bigdf.drop(columns=['Laney College'], inplace=True) #laney college is messed up
+bigdf = bigdf.merge(df_noaa_new, on='datetime', how='left')
+bigdf = bigdf.merge(df_pa_new, on='datetime', how='left')
+
+
+# %%
+def set_cutoff(bigdf, cutoff):
+    """
+    Takes cutoff for maximum missing data points to subset dataframe to get ready
+    to turn into X/y dataframes
+    """
+    #How many NaNs are there in each column?
+    nullcols = bigdf.isnull().sum(axis=0)
+    
+    #Subsetting data to just have predictors with <X missing observations for a given year
+    c = cutoff
+    best_sites = list(nullcols.index[nullcols<c])
+    bigdf_subset = bigdf[best_sites].reset_index(drop=True)
+
+    #Subsetting data to just have observations with no NaNs
+    nullrows = bigdf_subset.isnull().sum(axis=1)
+    bigdf_subset = bigdf_subset[nullrows == 0].reset_index(drop=True)
+    
+    return bigdf_subset
+
+
+# %%
+def process_XY(bigdf_subset):
+    """
+    Takes dataframe containing amalgamated data, subsetted to get rid
+    of NaNs, and outputs training & testing X and y
+    """
+    #Creating X and y
+    y = bigdf_subset['epa_meas']
+    X_raw = bigdf_subset.drop(columns=['epa_meas','datetime','latitude','longitude','name'])
+
+    #Standardizing data
+    from sklearn.preprocessing import StandardScaler
+    scaler = StandardScaler()
+    X = pd.DataFrame(scaler.fit_transform(X_raw), index=X_raw.index, columns=X_raw.columns)
+
+    #Getting training and testing data
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2, random_state=99)
+    return X_train, X_test, y_train, y_test
+
+# %% [markdown]
+# Finally, we defined the two functions that we used to generate and tune our candidate models:
+# * **fit_model**, which fits a model (either OLS, ridge, lasso, or elastic net) to the training data and returns the MSE and a list of the coefficients of the model. 
+# * **model_cv_mse**, which conducts a k-fold cross validation using the training dataset. This optimizes the hyperparamter alpha (or lambda) in the ridge/lasso/elastic net models, but doesn't make sense for OLS (which doesn't have a hyperparamter like that). We defaulted to using <font color='red'>k=5  on the recommendation of ISLR.</font>
+# 
+# <font color='red'>To help encourage convergence, we increased the tolerance</font>
+
+# %%
+def fit_model(Model, X_train, X_test, y_train, y_test, alpha = 1):
+    """
+    This function fits a model of type Model to the data in the training set of X and y, and finds the MSE on the test set
+    Inputs: 
+        Model (sklearn model): the type of sklearn model with which to fit the data - LinearRegression, Ridge, or Lasso
+        alpha: the penalty parameter, to be used with Ridge and Lasso models only
+    Returns:
+        mse: a scalar containing the mean squared error of the test data
+        coeff: a list of model coefficients
+    """
+
+    if (Model == Ridge) | (Model == Lasso) | (Model == ElasticNet):    # initialize model
+        model = Model(max_iter = 10**9, alpha = alpha, tol=.1)
+    elif Model == LinearRegression:
+        model = Model() 
+    
+    model.fit(X_train, y_train)    # fit model
+    
+    y_pred = model.predict(X_test)  # get mean squared error of test data
+    mse = mean_squared_error(y_pred,y_test)
+    
+    coef = model.coef_     # get coefficients of model
+    
+    return mse, coef
+
+
+# %%
+from sklearn.model_selection import KFold
+def model_cv_mse(Model, X, y, alphas, k = 3):
+    """
+    This function calculates the MSE resulting from k-fold CV performed on a training subset of 
+    X and y for different values of alpha.
+    Inputs: 
+        alphas: a list of penalty parameters
+        k: number of folds in k-fold cross-validation
+    Returns:
+        average_mses: a list containing the mean squared cross-validation error corresponding to each value of alpha
+    """
+    mses = np.zeros((k,len(alphas))) # initialize array of MSEs to contain MSE for each fold and each value of alpha
+        
+    kf = KFold(k, shuffle=True, random_state=0) # get kfold split
+    
+    X = X.reset_index(drop=True)
+    y = y.reset_index(drop=True)
+    
+    fold = 0
+    for train_i, val_i in kf.split(X):
+        # get training and validation values
+        X_f_train = X.iloc[train_i,:]
+        X_f_val = X.iloc[val_i,:]
+        y_f_train = y[train_i]
+        y_f_val = y[val_i]
+        
+        for i in range(len(alphas)): # loop through alpha values
+            if Model == LinearRegression:
+                model = Model()
+            else:
+                model = Model(max_iter = 10**8, tol=.1, alpha=alphas[i]) # initialize model
+
+            model.fit(X_f_train,y_f_train) # fit model
+            
+            y_pred = model.predict(X_f_val) # get predictions
+            
+            mse = mean_squared_error(y_f_val,y_pred)
+            mses[fold,i] = mse # save MSE for this fold and alpha value
+        
+        fold += 1
+    
+    average_mses = np.mean(mses, axis=0) # get average MSE for each alpha value across folds
+    
+    return average_mses
+
+# %% [markdown]
+# Finally, we write a function that puts it all together: it takes in the original dataframe, the data missingness cutoff parameter, and outputs a list of MSEs. We use the model_cv_mse function to fit the lasso/ridge/elasticnet models and tune their hyperparameters via cross-validation (using the validation data partitioned out of the training set), and then call fit_model for all four models, including OLS (using the test data partitioned out of the full dataset at the beginning).
+
+# %%
+def master_model(bigdf, cut):
+    """ etc """
+    
+    #Setting data cutoff
+    bigdf_subset = set_cutoff(bigdf, cutoff=cut)
+    X_train, X_test, y_train, y_test = process_XY(bigdf_subset)
+    
+    alphas = [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 10**5, 10**6, 10**7]
+    models = [Ridge, Lasso, ElasticNet, LinearRegression]
+    
+    #Optimizing alpha for each model with a hyperparameter
+    optimal_alpha = {}
+    for model in models:
+        mses = model_cv_mse(model, X_train, y_train, alphas)
+        optimal_alpha[model] = alphas[np.argmin(mses)]
+    
+    #Fitting models with tuned hyperparameters
+    mses_all = []
+    coefs_all = []
+    for mod in models:
+        mse, coef = fit_model(mod, X_train, X_test, y_train, y_test, optimal_alpha[mod])
+        mses_all.append(mse)
+        coefs_all.append(coef)
+        
+    #Output
+    out = [cut] + [bigdf_subset.shape[0]] + [bigdf_subset.shape[1]] + mses_all
+    return out
+
+
+# %%
+#Exploring a range of different data quality cutoffs
+cuts = np.arange(175,975,50)
+df = pd.DataFrame(['Cutoff', '# Observations', '# Predictors', 'Ridge MSE', 'Lasso MSE', 'ElasticNet MSE', 'LinearRegression MSE'])
+
+
+# %%
+for c in cuts:
+    x = pd.Series(master_model(bigdf, cut=c))
+    df = pd.concat([df,x], axis=1)
+
+# %% [markdown]
+# We then reran the above code three more times--once each for 95%, 85%, and 75% cutoffs for the correlation matrices.
+# 
+# I can't plot this to save my life right now
+
+# %%
+#df_original = df
+#df_75 = df
+#df_85 = df
+#df_95 = df
+
+
+# %%
+df_75
+
+
+# %%
+df_85
+
+
+# %%
+df_95
+
+
+# %%
+df_original
+
+
+# %%
+plt.scatter(df_75.loc[2,1:], df_75.loc[3,1:], '-b')
+
+# %% [markdown]
+# <font color='red'>should just go back in hw and make sure this is right process.......</font>
+# %% [markdown]
+# ## Interpretation and Conclusions (20 points)
+# In this section you must relate your modeling and forecasting results to your original research question.  You must 
+# 1. What do the answers mean? What advice would you give a decision maker on the basis of your results?  How might they allocate their resources differently with the results of your model?  Why should the reader care about your results?
+# 2. Discuss caveats and / or reasons your results might be flawed.  No model is perfect, and understanding a model's imperfections is extremely important for the purpose of knowing how to interpret your results.  Often, we know the model output is wrong but we can assign a direction for its bias.  This helps to understand whether or not your answers are conservative.  
+# 
+# Shoot for 500-1000 words for this section.
+
+# %%
+
+

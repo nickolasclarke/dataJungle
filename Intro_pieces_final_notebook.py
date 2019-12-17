@@ -542,6 +542,7 @@ plt.show()
 #    In summary, this model attempts to predict PM2.5 levels at every CA EPA sensor across specific hours (which also act as inputs). The multi-point model draws on OLS, lasso, and ridge. We ran into one principal issue with this model:
 #    * **Data/Observation Availability** Many of our features did not have data points that easily matched neatly within the rows meant to represent a PM2.5 reading at a specific sensor (i.e., other input data didn't match neatly to EPA data). This was especially problematic for Question 2 - our multi-point model used several input data sources which meant that many rows were culled because they featured at least one null value.
 # 
+#   Below we provide the code for our single-point and multi-point models, starting first with single-point:
 
 # %%
 #Loading dependencies for models
@@ -1029,6 +1030,345 @@ plt.show()
 #  This assessment shows that at low pollution levels, our model has a significant positive bias, and at higher levels (roughly above the mean and below the mean), there is a significant negative bias. This is troubling, because the danger of underestimating high levels of pollution is greater than vice versa.
 # 
 #  However, a rough log-transformation on our y helps get the residuals centered around 0, which is desireable--we would consider (perhaps later in this notebook if time permits!) log-transforming y before running our analysis. The residual at low values of y in the log-transformed version are still quite biased, but we don't care that much about our accuracy on the very lowest-pollution days (I'd say), at least compared to polluted days.
+#
+#   Below we provide the code used for the multi-point model. In the interest of space, we will only be providing the code to run the model for one of our selected cases. We will identify the point in the model at which users specifically designate which hour they are trying to analyze:
+# %%
+#Load dependencies
+import json
+import csv
+import pandas as pd
+from pandas.io.json import json_normalize
+import numpy as np
+import geopandas as gpd
+import shapely
+from shapely.geometry import Point, MultiPoint, Polygon, MultiPolygon
+from shapely.affinity import scale
+import matplotlib.pyplot as plt
+
+import glob
+import os
+import datetime
+from datetime import timezone
+import zipfile
+import pickle
+
+pd.set_option('display.max_columns', 500)
+
+# %%
+#Load all data and perform minor cleaning
+df_epa = pd.read_csv("EPA_Data_MultiPointModel.csv")
+df_epa.head(1)
+
+df_beac = pd.read_csv("Beacon_Data_MultiPointModel.csv")
+df_beac.head(1)
+
+df_noaa = pd.read_csv("NOAA_Data_MultiPointModel.csv")
+df_noaa.head(10)
+
+df_truck = pd.read_csv("Truck_Data_MultiPointModel.csv")
+df_truck.drop(columns=['Unnamed: 0','Unnamed: 0.1'], inplace=True)
+df_truck = df_truck.rename(columns={'0':'latitude','1':'longitude'})
+df_truck['datetime'] = 'none'
+df_truck['name'] = 'none'
+cols = ['datetime', 'latitude', 'longitude', 'name', '100mAADT12', '100mFAF12', '100mNONFAF12',
+       '100mYKTON12', '100mKTONMILE12', '1000mAADT12', '1000mFAF12',
+       '1000mNONFAF12', '1000mYKTON12', '1000mKTONMILE12', '5000mAADT12',
+       '5000mFAF12', '5000mNONFAF12', '5000mYKTON12', '5000mKTONMILE12']
+df_truck = df_truck[cols]
+df_truck.head(1)
+
+df_pa = pd.read_csv("pa_full.csv")
+df_pa = df_pa.rename(columns={"lat":"latitude","lon":"longitude"})
+df_pa['name'] = 'none'
+cols = ['datetime', 'latitude', 'longitude','name','PM1.0 (ATM)','PM2.5 (ATM)','PM10.0 (ATM)','PM2.5 (CF=1)','id']
+df_pa = df_pa[cols]
+df_pa.head(10)
+
+# %%
+# Just as an early point of exploration, here we find the most commonly represented hours in each data set
+
+group_epa = df_epa.groupby("datetime")
+epa_counts = group_epa["datetime"].value_counts()
+
+EPA = epa_counts.loc[epa_counts==max(epa_counts)]
+print(EPA)
+
+group_noaa = df_noaa.groupby("datetime")
+noaa_counts = group_noaa["datetime"].value_counts()
+
+NOAA = noaa_counts.loc[noaa_counts==max(noaa_counts)]
+print(NOAA)
+
+group_beac = df_beac.groupby("datetime")
+beac_counts = group_beac["datetime"].value_counts()
+
+BEAC = beac_counts.loc[beac_counts==max(beac_counts)]
+print(BEAC)
+
+group_pa = df_pa.groupby("datetime")
+pa_counts = group_pa["datetime"].value_counts()
+
+PA = pa_counts.loc[pa_counts==max(pa_counts)]
+print(PA)
+
+# %%
+# Here is where we define our major functions that help us create our final DFs for analysis
+def select_datetime(df, month, day, hour, year=2018):
+    """
+    Inputs: dataframe with a column called 'datetime' containing *UTC* strings formatted as datetime objects; 
+        month, day, and hour desired (year is assumed 2018)
+    Outputs: rows of the original dataframe that match that date/hour
+    """
+    
+    if pd.to_datetime(df['datetime'][0]).tzinfo is None:
+        desired_datetime = datetime.datetime(month=month, day=day, year=2018, hour=hour)
+    else:
+        desired_datetime = datetime.datetime(month=month, day=day, year=2018, hour=hour).replace(tzinfo=timezone.utc)
+
+    idx = pd.to_datetime(df['datetime']) == desired_datetime
+    
+    return df[idx].reset_index(drop=True)
+
+def get_distance_matrix(df_epa, df_other):
+    """
+    Inputs: df of EPA sensors and df of dataset with coordinates in it.
+        Should have 'latitude' and 'longitude' columns
+    Output: data frame of Euclidean distance from each EPA sensor to each point in the other dataframe
+        (Assumes the earth is flat)
+    """
+    
+    dists = np.full((df_epa.shape[0], df_other.shape[0]), np.inf)
+    
+    for i in range(df_epa.shape[0]):
+        for j in range(df_other.shape[0]):
+            dists[i,j] = ((df_epa['latitude'][i] - df_other['latitude'][j])**2 
+                         + (df_epa['longitude'][i] - df_other['longitude'][j])**2)**.5
+            
+    return dists
+
+def get_KNN_avgs(df_epa, df_other, k=5):
+    """
+    Inputs: two dataframes (one EPA data, one other data) with cols ['datetime', 'latitude',
+        'longitude','name','data1...'...],
+        and a value for k (the number of neighbors that will be averaged for a given point)
+    Outputs: the k closest points from the other dataset
+    """
+    
+    dists = get_distance_matrix(df_epa, df_other)
+    order = np.argsort(dists, axis=1)
+    
+    df_output = df_epa[['epa_meas','latitude','longitude']]
+    cols = df_other.columns.tolist()[4:]
+    for i in range(dists.shape[0]):
+        for col in cols:
+            sorted_data = df_other[col][order[i]]
+            x = np.nanmean(sorted_data[0:k])
+            df_output.loc[i,col] = x
+            
+    return df_output
+
+def get_final_timevarying_dataframe(df_epa, other_dfs, month, day, hour, k=5):
+    """
+    Input: EPA dataframe, list of any other dataframes to be added in via KNN, and desired day/time
+    Other df format must be ['datetime', 'latitude','longitude','name','data1','data2'..]
+    Output: a nearly-analysis-ready df (ie, just y and X)...still need to add in
+        non-time-varying data
+    """
+        
+    epa_subset = select_datetime(df_epa, month=month, day=day, hour=hour)
+    df0_subset = select_datetime(other_dfs[0], month=month, day=day, hour=hour)
+    output = get_KNN_avgs(epa_subset, df0_subset)
+    
+    for df in other_dfs[1:]:
+        df_subset = select_datetime(df, month=month, day=day, hour=hour)
+        x = get_KNN_avgs(epa_subset, df_subset)
+        output = output.merge(x, on='epa_meas',how='left')
+        
+    return output
+# %%
+# In this cell we create our dataframe for analysis by running our functions and performing some minor cleaning (removing nulls, renaming columns etc)
+# A note: this is where users define which hour of the year they wish to analyze. Within the get_final_timevarying_dataframe function, we pass in the month of May, 2nd day, 8th hour. This is how we manually choose our cases. In retrorespect, it would have been smoother to have written a loop but alas time constraints made manual inputting easiest. To be extra clear, we only provide the code for one discrete "case" (hour) out of the 7 hours identified in our poster project.
+df_analysis = get_final_timevarying_dataframe(df_epa, [df_noaa, df_beac,df_pa], month=5,day=2,hour=8)
+df_analysis = df_analysis.drop(columns=['latitude_y','longitude_y','id','latitude','longitude'])
+df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x':'longitude'})
+df_analysis = df_analysis.merge(df_truck, on=['latitude','longitude'], how='left') 
+df_analysis = df_analysis.drop(columns=['precip_accum_one_hour_set_1'])
+nullcount = df_analysis.isnull().sum(axis=1)
+df_analysis = df_analysis[nullcount == 0].reset_index(drop=True)
+
+# %%
+# Here we load in a few more dependencies and start the x / y, test/train split process
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import Ridge
+from sklearn.linear_model import Lasso
+from sklearn.metrics import mean_squared_error
+
+y = df_analysis['epa_meas']
+X_raw = df_analysis.drop(columns=['epa_meas','latitude','longitude','datetime','name'])
+scaler = StandardScaler()
+X = pd.DataFrame(scaler.fit_transform(X_raw), index=X_raw.index, columns=X_raw.columns)
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2, random_state=99)
+# %%
+# Now we define a new function to fit our models
+def fit_model(Model, X_train, X_test, y_train, y_test, alpha = 1):
+    """
+    This function fits a model of type Model to the data in the training set of X and y, and finds the MSE on the test set
+    Inputs: 
+        Model (sklearn model): the type of sklearn model with which to fit the data - LinearRegression, Ridge, or Lasso
+        X_train: the set of features used to train the model
+        y_train: the set of response variable observations used to train the model
+        X_test: the set of features used to test the model
+        y_test: the set of response variable observations used to test the model
+        alpha: the penalty parameter, to be used with Ridge and Lasso models only
+    Returns:
+        mse: a scalar containing the mean squared error of the test data
+        coeff: a list of model coefficients
+    """
+    
+    # initialize model
+    if (Model == Ridge) | (Model == Lasso):
+        model = Model(max_iter = 1000, alpha = alpha, normalize=True)
+    elif Model == LinearRegression:
+        model = Model(normalize=True) 
+        
+    # fit model
+    model.fit(X_train, y_train)
+    
+    # get mean squared error of test data
+    y_pred = model.predict(X_test)
+    mse = mean_squared_error(y_pred,y_test)
+    
+    # get coefficients of model
+    coef = model.coef_
+    
+    return mse, coef
+# %%
+#Here's a quick loop to use our function to run through OLS, Ridge, Lasso and print out the MSEs and Coef values
+mses_all = {} 
+coefs_all = {}
+for model in [Ridge, Lasso, LinearRegression]:
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+mses_all
+coefs_all
+# %%
+
+#Here's an intersting visualization of our beta values by model selection
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+# %%
+# Now we start to really get into the modeling, here we do a K-fold cross validation with differing values of alpha
+from sklearn.model_selection import KFold
+def model_cv_mse(Model, X, y, alphas, k = 5):
+    """
+    This function calculates the MSE resulting from k-fold CV using lasso regression performed on a training subset of 
+    X and y for different values of alpha.
+    Inputs: 
+        Model (sklearn model): the type of sklearn model with which to fit the data - Ridge or Lasso
+        X: the set of features used to fit the model
+        y: the set of response variable observations
+        alphas: a list of penalty parameters
+        k: number of folds in k-fold cross-validation
+    Returns:
+        average_mses: a list containing the mean squared cross-validation error corresponding to each value of alpha
+    """
+    mses = np.zeros((k,len(alphas))) # initialize array of MSEs to contain MSE for each fold and each value of alpha
+        
+    kf = KFold(k, shuffle=True, random_state=0) # get kfold split
+    
+    X = X.reset_index(drop=True)
+    y = y.reset_index(drop=True)
+    
+    fold = 0
+    for train_i, val_i in kf.split(X):
+        # get training and validation values
+        X_f_train = X.iloc[train_i,:]
+        X_f_val = X.iloc[val_i,:]
+        y_f_train = y[train_i]
+        y_f_val = y[val_i]
+        
+        for i in range(len(alphas)): # loop through alpha values
+            model = Model(alpha=alphas[i], normalize=True, max_iter=100000) #<<<lots of iterations
+
+            model.fit(X_f_train,y_f_train) # fit model
+            
+            y_pred = model.predict(X_f_val) # get predictions
+            
+            mse = mean_squared_error(y_f_val,y_pred)
+            mses[fold,i] = mse # save MSE for this fold and alpha value
+        
+        fold += 1
+    
+    average_mses = np.mean(mses, axis=0) # get average MSE for each alpha value across folds
+    
+    return average_mses
+
+alphas_ridge = [0.01, 0.1, 1, 10, 100, 1000, 10000, 10**5, 10**6, 10**7]
+alphas_lasso = [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
+mses_ridge = model_cv_mse(Ridge, X_train, y_train, alphas_ridge)
+mses_lasso = model_cv_mse(Lasso, X_train, y_train, alphas_lasso)
+
+fig, ax = plt.subplots(figsize=(10,5))
+plt.subplot(121)
+plt.plot(np.log10(alphas_ridge),mses_ridge)
+plt.title("Model Selection w/ Ridge Regression")
+plt.xlabel("Log of alpha")
+plt.ylabel("Cross-validated MSE")
+
+plt.subplot(122)
+plt.plot(np.log10(alphas_lasso),mses_lasso)
+plt.title("Model Selection w/ Lasso Regression")
+plt.xlabel("Log of alpha")
+plt.ylabel("Cross-validated MSE")
+
+plt.tight_layout()
+plt.show()
+
+# %%
+#Now we re-run all 3 of our models with optimized alphas
+
+mses_all = {}
+coefs_all = {}
+
+models = [Ridge, Lasso, LinearRegression]
+alphas = [alphas_ridge[np.argmin(mses_ridge)], alphas_lasso[np.argmin(mses_lasso)], 0]
+
+for model, alpha in zip(models,alphas):
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test, alpha)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+mses_all
+
+coefs_all
+
+#Visualization of Beta Coefficients
+
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+plt.savefig('Initial_run.png', bbox_inches='tight')
+
+#This concludes 1 case run for our multi point model for question 2. For the sake of reiteration, this multi point model takes in multiple data sources in addition to the base EPA data. Now we move to a modified version of this model where we only use the 4 features from PurpleAir as predictors for question 3. Because this code is adapted from the multi-point model introduced above, we won't spend the time setting up dependendies and loading in data, it's already been done above. Instead, the modeling below is meant to show outcomes from when we only use PA data with the EPA data to forecast the EPA data:
+
 # %% [markdown]
 #    ## Interpretation and Conclusions (20 points)
 #    In this section you must relate your modeling and forecasting results to your original research question.  You must
@@ -1050,7 +1390,7 @@ plt.show()
 #  * The process we used to purge the dataframe of correlation was pretty cool (I think) but not best-practice according to ISLR, although best practice would have been way too computationally intensive. It is worth noting again that we originally developed this purging method because our lasso model wouldn't converge, but then we just cranked up the number of iterations for gradient descent and it worked...so this correlation-purging experiment is just a neat sensitivity.
 #  * A log-transformation of each air pollution data input (which are all skewed) would probably benefit this work
 # 
-# ### Multi-point model
+#   ### Multi-point model
 # 
 #    Original Question: When should Californians plan to purchase N95 masks?
 # 

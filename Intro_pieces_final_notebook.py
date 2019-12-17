@@ -4,18 +4,18 @@
 #  # Predicting Regulatory Grade Air Quality Sensor Output
 #  ## ER131 Final Project
 # 
-#    - Nick Clarke: Data aquistiion and cleaning of NOAA and Purple Air Data. Trained others on how to use Git for collaboration effectively. Significant input on design of our various models. Help debugging others code. Helped write and edit final notebook.
+#    - Nick Clarke: Research data sources and various methods to get the data. Data aquistiion and extensive cleaning of NOAA and Purple Air Data. Trained others on how to use Git for collaboration effectively. Significant input on selection and design of our various models. Help debugging others code. Helped analyze and interpret model results. Write and edit significant portions of final notebook.
 #    - Margaret McCall: Collected Beacon, EPA, and trucking data; wrote scripts to clean & process these 3 datasets to fit format needed by each models. Wrote draft code for singlepoint and multipoint models; led coding/writeup/poster outputs of singlepoint model.
 #    - Jake McDermott: Initial data acquisition and subsetting of PurpleAir data. Formulated and ran cases for Questions 2 and 3. Contributed heavily to poster design and interpretations/analysis portion of multi-point model.
 # 
 # %% [markdown]
 #  ## Abstract (5 points)
-#  This project attempts to forecast PM 2.5 readings from EPA sensors for a variety of resource allocation questions. The explosion of Machine Learning and Artificial Intelligence has created new use cases for quantitative analysis to solve pressing social problems. For the purposes of this project, we are concerned with the flurry of wildfires occuring in CA over the last few years. With increased wildfire risk comes increased concern from public health officials about how best to respond by way of public tax dollars. Our project creates a few hypothetical questions to answer prior to data collection and cleaning, modeling, and drawing conclusions. The results aren't promising. Regardless of model choice (OLS, Ridge, Lasso), we find that there exists a large amount of cross validated error. This makes it difficult for us to recommend that public sector managers, decision makers, and everyday citizens rely on the modeling efforts contained within. Still, there is a glimmer of hope - for if we can get better input data (and more of it), we might find that the efficacy of our modeling improves.
+#  This project attempts to forecast PM 2.5 readings from EPA sensors for a variety of resource allocation questions. The explosion of Machine Learning and Artificial Intelligence has created new use cases for quantitative analysis to solve pressing social problems. For the purposes of this project, we are concerned with the flurry of wildfires occuring in CA over the last few years. With increased wildfire risk comes increased concern from public health officials about how best to respond by way of public tax dollars. Our project creates a few hypothetical questions to answer prior to data collection and cleaning, modeling, and drawing conclusions. The results aren't promising. Regardless of model choice (OLS, Ridge, Lasso), we find that there exists a large amount of cross validated error. This makes it difficult for us to recommend that public sector managers, decision makers, and everyday citizens rely on the modeling efforts contained within. Still, there is a glimmer of hope - for if we can get better, cleaner, input data (and more of it), we might find that the efficacy of our modeling improves.
 # %% [markdown]
 #  ## Project Background (5 points)
-#  Air quality is a serious environmental issue that has major implications for public health. Over[ 90% of the world lives](https://www.who.int/news-room/fact-sheets/detail/ambient-(outdoor)-air-quality-and-health) in areas that do not meet WHO guidelines for safe air quality, and leads to [millions of premature deaths every year](https://www.who.int/news-room/fact-sheets/detail/ambient-(outdoor)-air-quality-and-health). It is often a highly localized problem, both in space and time. Until recently it has been rather difficult to get continous, high temporal and spatial resolution data for monitoring air quality. Previously, monitoring was done either with spot measurements periodically, or continously with research-grade monitors run by governments and research groups. While these monitors provide good, continous data, they are tens of thousands of dollars. As such, these monitoring networks have poor spatial coverage.
+#  Air quality is a serious environmental issue that has major implications for public health. Over[ 90% of the world lives](https://www.who.int/news-room/fact-sheets/detail/ambient-(outdoor)-air-quality-and-health) in areas that do not meet WHO guidelines for safe air quality, and leads to [millions of premature deaths every year](https://www.who.int/news-room/fact-sheets/detail/ambient-(outdoor)-air-quality-and-health). It is often a highly localized problem, both in space and time. Until recently it has been rather difficult to get continous, high temporal and spatial resolution data for monitoring air quality. Previously, monitoring was done either with spot measurements periodically, or continously with research-grade monitors run by governments and research groups. While these monitors provide good, continous data, they cost tens of thousands of dollars. As such, these monitoring networks have poor spatial coverage.
 # 
-#  With the advent of consumer-grade, low cost air quality monitors however, it is possible to get continous monitoring coverage for significantly cheaper. While these monitors do not have the same accuracy as a research grade monitor, in large enough numbers, [research suggests ](https://www.epa.gov/sites/production/files/2018-03/documents/final_em-3_master_slide_set.pdf) that they can provide valuable insights into air quality trends in a given area. Moreover, air quality is greatly impacted by weather, topography, and local point sources of emissions. By combining these additional timeseries and static datasets with low-cost monitoring data, it may be possible to make reasonable predictions of air quality across space and time in places where a research grade monitor is not present. If so, this would be a boon for researchers and policy makers alike, as they look to improve their understanding of of the impacts of air pollution and dedicate resources to monitoring, curtailing and abating air pollution.
+#  With the advent of consumer-grade, low cost air quality monitors however, it is possible to get continous monitoring coverage for significantly cheaper. While these monitors do not have the same accuracy as a research grade monitor, in large enough numbers, [research suggests](https://www.epa.gov/sites/production/files/2018-03/documents/final_em-3_master_slide_set.pdf) that they can provide valuable insights into air quality trends in a given area. Moreover, air quality is greatly impacted by weather, topography, and local point sources of emissions, etc. By combining these additional timeseries and static datasets with low-cost monitoring data, it may be possible to make reasonable predictions of air quality across space and time in places where a research grade monitor is not present. If so, this would be a boon for researchers and policy makers alike, as they look to improve their understanding of of the impacts of air pollution and dedicate resources to monitoring, curtailing and abating air pollution.
 # 
 #  Convienently, the Purple Air low cost air quality sensor has seen significant deployment across the world in recent years. Over 2,000 low-cost sensors have been deployed across California alone, and the historical data for the vast majority of these sensors is publically available. In addition, high quality weather and truck freight traffic data is also available.
 # # Project Objective (5 points)
@@ -25,21 +25,22 @@
 #  3. Should the government subsidize the purchase of PurpleAir or other low quality air monitors? Our final question builds off our prior forecasts for question 2, but only uses PurpleAir data as a feature
 
 # %%
-import json
-import csv
-import pandas as pd
-from pandas.io.json import json_normalize
-import numpy as np
-import geopandas as gpd
-import shapely
-from shapely.geometry import Point, MultiPoint, Polygon, MultiPolygon
-from shapely.affinity import scale
-import matplotlib.pyplot as plt
-
 import glob
 import os
 import datetime
 import zipfile
+import json
+import csv
+import pandas as pd
+import numpy as np
+import geopandas as gpd
+import shapely
+
+import matplotlib.pyplot as plt
+from shapely.geometry import Point, MultiPoint, Polygon, MultiPolygon
+from shapely.affinity import scale
+from pandas.io.json import json_normalize
+
 
 pd.set_option('display.max_columns', 500)
 
@@ -178,9 +179,9 @@ df_beac_raw['PM_QC_level'].groupby(df_beac_raw['PM_QC_level']).size()
 #   - **Structure**:
 #  The data was originally obtained as a single JSON file for each month. In order to work with the data more easily, we used a function called `json_normalize` to convert to a dataframe as we read in each file, which we then appended together. After this simple conversion, the records were neatly organized in rows. **The fields of relevance are described further in the data cleaning section, but are:
 #    -`date_gmt`: ISO8601-compatible date string, in UTC
-#    -`time_gmt`: ISO8601-compatible time string, in UTC  **TWO WHAT LEVEL? HOURLY? NORMALIZED?**
-#    -`sample_measurement`: XXX
-#    -`sample_frequency`: the resolution of the sample in XXX units
+#    -`time_gmt`: ISO8601-compatible time string, in UTC
+#    -`sample_measurement`: the measurment of PM2.5
+#    -`sample_frequency`: the resolution of the sample
 #    -`latitude`: latiude of the sensor
 #    -`longitude`: longittude of the sensor
 # 
@@ -210,14 +211,11 @@ print(df_epa_raw['sample_frequency'][df_epa_raw['sample_duration']=='1 HOUR'].un
 # %% [markdown]
 #  ### NOAA
 #  #### Origins
-#   Our NOAA data (like our other data) was collected from the Synoptic MESONET Timeseries API. We collect one year of hourly resolution data for all MESONET stations that were located in CA, and append each csv together into a complete dataframe, similar to the PA data.
+#   Our NOAA data was collected from the Synoptic MESONET Timeseries API. We collect one year of hourly resolution data for all MESONET stations that were located in CA, and append each csv together into a complete dataframe, similar to the PA data.
 
 # %%
 df_noaa = pd.read_csv(filehome+"noaa_full.csv")
 df_noaa.head(10)
-df_noaa = gpd.GeoDataFrame(df_noaa, geometry = gpd.points_from_xy(df_noaa.longitude, df_noaa.latitude))
-df_noaa.plot()
-
 #### SGSTF
 #  - **Structure**:
 # The final form of the NOAA data consists of a dataframe similar to our PA data. each row represents 1 hour of the year for a given station, and has 32 features. This results in a dataframe that is ~2 million rows, covering ~200 sensors.
@@ -267,15 +265,21 @@ df_noaa.plot()
 # The MESONET API allows you to filter thoroughly for quality issues and remove suspect data beforehand, and accurrately labeling `null` data as such. This was helpful. Most of these sensors appear to be at airports, and have quite good data coverage.
 
 # %% [markdown]
-#   ### Trucking data
-#   1. We obtained truck data from the Freight Analysis Framework (FAF) model from the Bureau of Transportation Statistics. FAF data is suitable for geospatial analysis, and contains historical and predicted figures relevant to freight movement (e.g., annual number of freight trucks, non-freight trucks, tons of goods by truck, etc) for each highway segment. We ultimately only used this trucking data in our multi-point model--since it doesn't vary in time (the values presented are annual averages), we realized that it has no explanatory power when included in the single-point model.
+# ### Trucking data
+# #### Origins:
+# We obtained truck data from the Freight Analysis Framework (FAF) model from the Bureau of Transportation Statistics. FAF data is suitable for geospatial analysis, and contains historical and predicted figures relevant to freight movement (e.g., annual number of freight trucks, non-freight trucks, tons of goods by truck, etc) for each highway segment. We ultimately only used this trucking data in our multi-point model--since it doesn't vary in time (the values presented are annual averages), we realized that it has no explanatory power when included in the single-point model.
 # 
-#   2. SGSTF: <p>
-#       **Structure**: The data was initially read in as a shapefile, and then a separate DBF dataframe containing attributes associated with each linestring in the shapefile was read in and merged. The DBF file was tabular already (I think) but was transformed into a dataframe to facilitate the merge. The relevant columns are addressed in the data cleaning section. <p>
-#       **Granularity**: Each row of the truck data represents data for a specific linestring--that is, a geometric representation of a certain highway segment. While all rows are at this level of granularity, the length of each segment of highway may be different, so the features are not comparable on their face.<p>
-#       **Scope**: The initial dataset is country-wide and extends into some parts of Canada as well. <p>
-#       **Temporality**: This data is aggregated data (in fact, estimated population data based on sample data) representing truck traffic in 2012. Forward-looking estimates for 2045 were also available in this dataset <p>
-#       **Faithfulness**: The main faithfulness check that was feasible to do was to determine whether the length of the highway segment given in the 'LENGTH' column corresponded to the difference between the BEGMP and ENDMP (start and end mile marker) columns, which it did.
+# #### SGSTF:
+# - **Structure**: 
+# The data was initially read in as a shapefile, and then a separate DBF dataframe containing attributes associated with each linestring in the shapefile was read in and merged. The DBF file was tabular already (I think) but was transformed into a dataframe to facilitate the merge. The relevant columns are addressed in the data cleaning section.
+# - **Granularity**: 
+# Each row of the truck data represents data for a specific linestring--that is, a geometric representation of a certain highway segment. While all rows are at this level of granularity, the length of each segment of highway may be different, so the features are not comparable on their face.
+# - **Scope**: 
+# The initial dataset is country-wide and extends into some parts of Canada as well.
+# - **Temporality**: 
+# This data is aggregated data (in fact, estimated population data based on sample data) representing truck traffic in 2012. Forward-looking estimates for 2045 were also available in this dataset
+# - **Faithfulness**: 
+# The main faithfulness check that was feasible to do was to determine whether the length of the highway segment given in the 'LENGTH' column corresponded to the difference between the BEGMP and ENDMP (start and end mile marker) columns, which it did.
 
 # %%
 #Structure
@@ -305,10 +309,13 @@ sampl.head()
 
 # %% [markdown]
 #    ### PurpleAir
-#    As mentioned in the first section, we obtained PurpleAir data from a REST API. Initially we were able to cull a list of every PurpleAir ID across the world. After porting the information into R and subsetting the data by California, we brought the finished list back into python. Using the ThingSpeak REST API, we were able to succesfully pull all hourly readings for our CA subset in 2018.
-#    The data cleaning process was fairly time intensive. During our initial grab of every sensor, we discovered that each row represented a channel (A or B) within a sensor. Additionally, while each row should have had a cell IDing if the sensor was indoors or outdoors, many did not. To get around this, we were able to figure out how to identify outdoor sensors based on ID numbers, which allowed us to fully isolate all outdoor sensors.
-#    Since Jake has a bit more experience doing geospatial subsetting in R rather than python, we ported the list into R where Jake further subset the data from Global to CA specific sensors. That allowed Nick to implement the REST API on the subset list to query the online DB to extract the data that we needed.
-#    Even after querying the REST API for all hourly 2018 data, we still had to
+#As mentioned in the first section, we obtained a list of all PurpleAir sensor metadata from the Purple Air REST API. Purple Air's API only provides meta data and the latest reading from a given sensor, while historical data is stored on the ThingSpeak IoT platform. We used the list of sensors, filtering in R for sensors located in California. From this subset list, we further subset for outdoor sensors, sensors and sensors flagged by Purple Air as having data quality issues. We then wrote a script to pull historical data for 2018 from the ThingSpeak REST API for each sensor. 
+#
+#The data aquistion and data cleaning process was fairly time intensive for Purple Air because of the nature of how Purple Air historical data is organized, and limited documentation of the ThingSpeak API. To quote from the section above: "The ThingSpeak API is organized by `channel`s, and each Purple Air device uses two channels (A and B). This is because each Purple Air device has two discrete laser sensors that are used to validate each other. If they do not detect issues in the data, PA later combines the data from both these channels to give a single value on their website and apps. This final aggregated value is not available via their API, and it is unclear what the full logic is behind their aggreation. Purple Air takes a value for each `channel` every 80 seconds and pushes them to their respective ThingSpeak `channel_id` via the ThingSpeak API. We pull data for every channel in CA."
+# 
+# When attempting to pull this historical data from ThingSpeak, we found that due to API design, it was very difficult to pull a full year of hourly data for a given channel. The API is limited to accessing 8000 datpoints per call, including any aggregation that must be done with those points. Nominally there is data every 80 seconds, all of which would need to be read by the API to return an aggregated value. This means that for every channel we had to split the year up into ~7.2 day chunks and make a seperate call for each of these chunks over the course of a year. This meant we had to make ~50 calls for each channel, stiching the results together. Since every sensor has 2 channels, this meant over 200,000 calls that had to be made to the ThingSpeak platform. Since python's standard http library `requests` does not support asyncronous requests, this had to be done in series, and was severely I/O bound as we waited for each call to be filled. This approach also lead to some duplicate and excess data that had to be scrubbed, since at the chunked calls were not always on the top of the hour.
+# 
+# Finally we were left with data for each channel for all sensors in California. However, it quickly became apparent that a large portion of these sensors had not been added to the Purpleair network until mid-2018 or later. There appeared to be a particular spike in new sensors between 2018 and today. This meant many of these data channels did not have sufficient data to be useful. We then filtered for sensors that had 6000 rows or more, dropping the rest. All this lead to a final count of ~200 sensors out of ~2000 that are publically listed as in CA by Purple Air.
 # %% [markdown]
 #    ### BEACON
 # 
@@ -355,7 +362,9 @@ plt.legend()
 # %% [markdown]
 #    ### NOAA
 # 
-#    To acquire NOAA data, we used the National Centers for Environmental Information's (NCEI's) REST API. After downloading the data as multiple CSV files, we proceeded to append each CSV together to create one larger dataframe. From there, we selected and kept only the most relevant columns, did some general re-naming of columns and converted the DF to a CSV. We then ported the CSV as it's own object to process and acquire specific station coordiantes.
+#    To acquire NOAA data, we used the National Centers for Environmental Information's (NCEI's) REST API. However, this proved difficult to subset for the information we needed. After significant searching, we settled on using a combiniation of the NOAA weather API and the Synaptic MESONET API. The NOAA weather API allowed us to easily filter for stations only located in CA. However, similar to Purple Air, it only provides current conditions and some forecasting data. The MESONET timeseries API allowed us to access historical data from these stations. Using these together, we were able to pull data for all of the MESONET weather stations in CA. Most of these provided data at an hourly resolution, but not normalized to the top of the hour. Others, such as SFO or LAX airports, provided significantly higher data resolution at 2 - 5 minute resolution. 
+#
+#Once aquiring CSVs with a years worth of data for each of these stations, we resampled them to normalized hourly data at UTC. This resampling required us to drop all of the qualitative observation types such as `visbility == 'hazy'`. Finally we combined the data into two final dataframes, as described above, normalizing column names and values to match the other datasets.
 # 
 # 
 # %% [markdown]
@@ -1406,6 +1415,3 @@ plt.savefig('Initial_run.png', bbox_inches='tight')
 # 
 
 # %%
-
-
-

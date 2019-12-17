@@ -5,11 +5,11 @@
 # ## Students:
 #   - Nick Clarke: Data aquistiion and cleaning of NOAA and Purple Air Data. Trained others on how to use Git for collaboration effectively. Significant input on design of our various models. Help debugging others code. Helped write and edit final notebook. 
 #   - Margaret McCall 
-#   - Jake McDermott
+#   - Jake McDermott: Initial data acquisition and subsetting of PurpleAir data. Formulated and ran cases for Questions 2 and 3. Contributed heavily to poster design and interpretations/analysis portion of multi-point model.
 #
 # %% [markdown]
 # ## Abstract(5 points)
-#TODO
+# This project attempts to forecast PM 2.5 readings from EPA sensors for a variety of resource allocation questions. The explosion of Machine Learning and Artificial Intelligence has created new use cases for quantitative analysis to solve pressing social problems. For the purposes of this project, we are concerned with the flurry of wildfires occuring in CA over the last few years. With increased wildfire risk comes increased concern from public health officials about how best to respond by way of public tax dollars. Our project creates a few hypothetical questions to answer prior to data collection and cleaning, modeling, and drawing conclusions. The results aren't promising. Regardless of model choice (OLS, Ridge, Lasso), we find that there exists a large amount of cross validated error. This makes it difficult for us to recommend that public sector managers, decision makers, and every day citizens rely on the modeling efforts contained within. Still, there is a glimmer of hope - for if we can get better input data (and more of it), we might find that the efficacy of our modeling improves.
 # %% [markdown]
 # ## Project Background (5 points)
 # Air quality is a serious environmental issue that has major implications for public health. Over[ 90% of the world lives](https://www.who.int/news-room/fact-sheets/detail/ambient-(outdoor)-air-quality-and-health) in areas that do not meet WHO guidelines for safe air quality, and leads to [millions of premature deaths every year](https://www.who.int/news-room/fact-sheets/detail/ambient-(outdoor)-air-quality-and-health). It is often a highly localized problem, both in space and time. Until recently it has been rather difficult to get continous, high temporal and spatial resolution data for monitoring air quality. Previously, monitoring was done either with spot measurements periodically, or continously with research-grade monitors run by governments and research groups. While these monitors provide good, continous data, they are tens of thousands of dollars. As such, these monitoring networks have poor spatial coverage. 
@@ -20,10 +20,9 @@
 
 ## Project Objective (5 points)
 # With this background in mind, we set out to answer the following questions:
-# 1. Can we predict, with acceptable accuracy, particulate matter (PM 2.5 ug/m^3) at the regulatory grade EPA sensor in Berkeley, CA?
-# 2. Assuming we can do the above, where else can we predict PM2.5 levels? How does this relate to the density of low-grade sensors?  
-# 3. How well do purple air sensors alone predict air quality? 
-#XXX what was our final decision on incorporating time into both of these? It is unclear to me. 
+# 1. Should California replace faulty or broken regulatory-grade sensors? This question requires that we predict PM2.5 levels at specific locations of existing regulatory sensors;
+# 2. When should Californians plan to purchase N95 masks? This query requires that we create forecasts for any given point in California that maintain accuracy throughout the year to help guide spending decisions; and  
+# 3. Should the government subsidize the purchase of PurpleAir or other low quality air monitors? Our final question builds off our prior forecasts for question 2, but only uses PurpleAir data as a feature 
 
 # %%
 import json
@@ -98,7 +97,7 @@ df_pa['PM2.5 (ATM)'].plot.hist(bins=50,range=(0,100))
 #     -`lat`: latitude
 #     -`lon`: longitude
 #     -`id`: unique ID of the Thingspeak Channel
-# Using `datime` as an index, each row represents a set of measurements from a discrete PA sensor `channel` at a given hour throughout the year. This means there are ~8760 hourly readings for each sensor `channel`.
+# Using `datetime` as an index, each row represents a set of measurements from a discrete PA sensor `channel` at a given hour throughout the year. This means there are ~8760 hourly readings for each sensor `channel`.
 # - **Scope**
 #  - Because we subset the entire universe of PA sensors by just those in CA, we know that the scope is adequate for our purposes.
 # - **Temporality**
@@ -190,7 +189,7 @@ df_beac_raw['PM_QC_level'].groupby(df_beac_raw['PM_QC_level']).size()
 #  - **Scope**:
 # When cleaning our data, we subset for CA only sensor locations and their respective data.
 #  - **Temporality**:
-#As described above, our final data is hourly resolution for all hours of 2018. As the data fields suggest, the dates and time are in UTC.
+# As described above, our final data is hourly resolution for all hours of 2018. As the data fields suggest, the dates and time are in UTC.
 #  - **Faithfulness**:
 #Compared to other datasource, such as PA or BEACON this data is considerablly cleaner. While there are some missing data, it has good temporal coverage. However there is some missing hours at some sensor locations, well within the 7000 hours threshold we have used for other data sources. ***MARG, VALIDATE THIS***
 # %%
@@ -212,14 +211,14 @@ print(df_epa_raw['sample_frequency'][df_epa_raw['sample_duration']=='1 HOUR'].un
 #  Our NOAA data (like our other data) was collected from the Synoptic MESONET Timeseries API. We collect one year of hourly resolution data for all MESONET stations that were located in CA, and append each csv together into a complete dataframe, similar to the PA data.
 
 # %%
-df_noaa = gpd.read_csv(f'{filehome}noaa_full.csv',
-                       geometry=gpd.points_from_xy(df_noaa.lon, df.lat))
+df_noaa = pd.read_csv(filehome+"/noaa_full.csv")
 df_noaa.head(10)
+df_noaa = gpd.GeoDataFrame(df_noaa, geometry = gpd.points_from_xy(df_noaa.longitude, df_noaa.latitude))
 df_noaa.plot()
 
 #### SGSTF
 #  - **Structure**:
-# The final form of the NOAA data consists of a dataframe similar to our PA data. each row represents 1 hour of teh year for a given station, and has 32 features. This results in a dataframe that is ~2 million rows, covering ~200 sensors.
+# The final form of the NOAA data consists of a dataframe similar to our PA data. each row represents 1 hour of the year for a given station, and has 32 features. This results in a dataframe that is ~2 million rows, covering ~200 sensors.
 #
 #  - **Granularity**:
 #
@@ -287,11 +286,6 @@ df_trucks_raw.head(3)
 # 
 #  [Chapter 4](https://www.textbook.ds100.org/ch/04/cleaning_intro.html) of the DS100 textbook might be helpful to you in this section.
 
-# %%
-
-#Jake note: After re reading this section's expectations and skimming the python scripts that clean the data, it seems like all we
-#need here is a written explanation of how we cleaned the data? I can't imagine Duncan actually wants us to throw our cleaning code here.
-
 # %% [markdown]
 #  Below we describe the separate data cleaning process for each of our five datasets. The PurpleAir and the Beacon datasets definitely required the most cleaning/processing compared to the three government-sourced datasets. Both Purple Air and Beacon had a lot of missing data.
 #
@@ -310,7 +304,10 @@ sampl.head()
 
 # %% [markdown]
 #   ### PurpleAir
-#   ((Nick / Jake))
+#   As mentioned in the first section, we obtained PurpleAir data from a REST API. Initially we were able to cull a list of every PurpleAir ID across the world. After porting the information into R and subsetting the data by California, we brought the finished list back into python. Using the ThingSpeak REST API, we were able to succesfully pull all hourly readings for our CA subset in 2018.
+#   The data cleaning process was fairly time intensive. During our initial grab of every sensor, we discovered that each row represented a channel (A or B) within a sensor. Additionally, while each row should have had a cell IDing if the sensor was indoors or outdoors, many did not. To get around this, we were able to figure out how to identify outdoor sensors based on ID numbers, which allowed us to fully isolate all outdoor sensors.
+#   Since Jake has a bit more experience doing geospatial subsetting in R rather than python, we ported the list into R where Jake further subset the data from Global to CA specific sensors. That allowed Nick to implement the REST API on the subset list to query the online DB to extract the data that we needed.
+#   Even after querying the REST API for all hourly 2018 data, we still had to
 # %% [markdown]
 #   ### BEACON
 # 
@@ -357,8 +354,8 @@ plt.legend()
 # %% [markdown]
 #   ### NOAA
 # 
-# 
-#  TODO((Nick/Jake))
+#   To acquire NOAA data, we used the National Centers for Environmental Information's (NCEI's) REST API. After downloading the data as multiple CSV files, we proceeded to append each CSV together to create one larger dataframe. From there, we selected and kept only the most relevant columns, did some general re-naming of columns and converted the DF to a CSV. We then ported the CSV as it's own object to process and acquire specific station coordiantes.
+#  
 # 
 # %% [markdown]
 #   ### Trucking data
@@ -376,10 +373,6 @@ plt.legend()
 #   [Chapter 6](https://www.textbook.ds100.org/ch/06/viz_intro.html) of the DS100 textbook might be helpful for providing ideas for visualizations that describe your data.
 # %% [markdown]
 #   ### PurpleAir
-
-# %%
-df_pa.head(10)
-
 
 # %%
 plt.figure(figsize=(15, 5))
@@ -450,10 +443,7 @@ pa_sample['PM2.5 (ATM)'].plot.hist(bins=60,range=(0,70))
 
 # %% [markdown]
 #   ### Beacon
-
-# %%
-# The structure of this data set is a 5 column and 70080 row dataframe, which we read in from a CSV file. We have a lat, lon, name of location, datetime, and reading from the individual node. Each row represents a reading at a certain location at a certain hour during 2018. The Lat and Lon data correspond to where the node is located. The scope of this data almost perfectly matches our projct given that each CA sensor is within the bay area. It would have been better if there were BEACON nodes across the entire state, but this may help us getting an accurate forecast for some of our areas nearby. Much like the PurpleAir data, because the data is collected from sensors, there appears to be little reason to doubt the reliability of what we've collected. The lat and lons seem to make sense,and the actual readings themselves match with what we'd expect as well.The temporality is also adequate, the data contained within is for 2018. Our histogram of the beacon data also shows a similar long-tailed distribution of our feature of interest. 
-
+#   # Below we plot a basic histogram showing the distribution of our Beacon data:
 
 # %%
 df_beac = pd.read_csv("Beacon_Data_MultiPointModel.csv")
@@ -462,7 +452,6 @@ df_beac['beac_data'].plot.hist(bins=50,range=(0,10))
 
 # %% [markdown]
 #   ### EPA
-# 
 
 # %%
 df_epa = pd.read_csv("EPA_Data_MultiPointModel.csv")
@@ -471,10 +460,7 @@ df_epa['epa_meas'].plot.hist(bins=100,range=(0,120))
 
 # %% [markdown]
 #   We included this histogram above, but we include it again to higlight the distribution of our EPA readings that we are interested in forecasting.
-# 
-# 
-# 
-# 
+#   
 
 # %%
 epa_sample = df_epa.sample(n=60,random_state=1)
@@ -492,15 +478,15 @@ plt.show()
 #   ### NOAA
 
 # %%
-# Our dataframe consists of 9 columns and 1033680 observations spread across CA in 2018. The datetimes in this particular frame are for each hour at different weather 
-#stations throughout CA. Each row (observation) is a measurement taken at a specific station for a given hour during the year.
-
-
-# %%
 df_noaa = pd.read_csv("NOAA_Data_MultiPointModel.csv")
 df_noaa.head(10)
 df_noaa['wind_speed_set_1'].plot.hist(bins=50,range=(0,20))
 df_noaa['air_temp_set_1'].plot.hist(bins=50,range=(0,20))
+df_noaa['wind_direction_set_1'].plot.hist(bins=50,range=(0,600))
+
+
+# %% [markdown]
+#   Above we show basic distributions of three more features from our NOAA data set, the air temp, wind direction, and wind speed.
 
 # %% [markdown]
 #   ### Trucking
@@ -530,12 +516,16 @@ df_truck.head(10)
 #   5. Seek opportunities to write functions allow you to avoid doing things over and over, and that make your code more succinct and readable.
 # 
 # %% [markdown]
-#   ### Single-point prediction model
+#   ### Single-point prediction model (Question 1)
 #   In summary, this model attempts to predict PM2.5 levels at the location of a specific EPA sensor (as described in the data cleaning section) in the Bay Area. It combines EPA data, Beacon data, NOAA data (across 5 data types), and PurpleAir PM2.5 data.
 # 
 #   In terms of modeling approaches, this single-point model draws on OLS, lasso, ridge, and the elastic net. We ran into two principal issues in our data, which motivated our investigation of sub-questions:
 #   * **Data quality:** Many of our predictors had incomplete data for the year (ie, less than 8760 hours' worth of data). We explored various "cutoffs" designating the maximum number of missing data points that any given column could have in order to remain in the dataset. After setting the cutoff, we removed any observations that had any NaNs remaining--thus, increasing the cutoff led to fewer observations being used for the model.
 #   * **Collinearity:** Because collinearity was a big issue in our data for both PurpleAir and NOAA (ie, nearby sensors had highly correlated readings), both lasso and elastic net often failed to converge during gradient descent. As such, we leaned on ridge and OLS predominantly. However, we also tried to directly address collinearity per the suggestion of ISLR, by building a function to purge a dataframe of variables exceeding a certain correlation threshold.
+# 
+#   ### Multi-point prediction model (Questions 2 and 3)
+#   In summary, this model attempts to predict PM2.5 levels at every CA EPA sensor across specific hours (which also act as inputs). The multi-point model draws on OLS, lasso, and ridge. We ran into one principal issue with this model:
+#   * **Data/Observation Availability** Many of our features did not have data points that easily matched neatly within the rows meant to represent a PM2.5 reading at a specific sensor (i.e., other input data didn't match neatly to EPA data). This was especially problematic for Question 2 - our multi-point model used several input data sources which meant that many rows were culled because they featured at least one null value.
 # 
 
 # %%
@@ -691,7 +681,7 @@ def process_XY(bigdf_subset):
 # %% [markdown]
 #   Finally, we defined the two functions that we used to generate and tune our candidate models:
 #   * **fit_model**, which fits a model (either OLS, ridge, lasso, or elastic net) to the training data and returns the MSE and a list of the coefficients of the model.
-#   * **model_cv_mse**, which conducts a k-fold cross validation using the training dataset. This optimizes the hyperparamter alpha (or lambda) in the ridge/lasso/elastic net models, but doesn't make sense for OLS (which doesn't have a hyperparamter like that). We defaulted to using k=5 on the recommendation of ISLR, which recommends a k between 5 and 10.
+#   * **model_cv_mse**, which conducts a k-fold cross validation using the training dataset. This optimizes the hyperparameter alpha (or lambda) in the ridge/lasso/elastic net models, but doesn't make sense for OLS (which doesn't have a hyperparamter like that). We defaulted to using k=5 on the recommendation of ISLR, which recommends a k between 5 and 10.
 
 # %%
 def fit_model(Model, X_train, X_test, y_train, y_test, alpha = 1):
@@ -1054,5 +1044,19 @@ plt.show()
 # * As discussed above, our model errors are skewed high below the mean and low above the mean; we also don't know how the model performs on days with very high air pollution, since they weren't in the test set
 # * The process we used to purge the dataframe of correlation was pretty cool (I think) but not best-practice according to ISLR, although best practice would have been way too computationally intensive. It is worth noting again that we originally developed this purging method because our lasso model wouldn't converge, but then we just cranked up the number of iterations for gradient descent and it worked...so this correlation-purging experiment is just a neat sensitivity.
 # * A log-transformation of each air pollution data input (which are all skewed) would probably benefit this work
-
+#
+#   **Multi-point model**
+#
+#   Original Question: When should Californians plan to purchase N95 masks?
+#
+#   Given our results so far, we can't determine optimal times for Californians to purchase N95 masks. This question requires us to get consistently strong forecasts for all 8760 hours of the year, and in particular we need to be able to forecast air quality on days and hours where it's expected to be quite poor. Additionally:
+#
+#   * By far the most interesting insight revealed by running our model for 7 discrete hours throughout 2018 is that the number of observations utilized in each model run matters. Our best (i.e., lowest MSE) model run was for May 14 at 6:00 am. We had just over 2000 observations split into test/train/validate sets. Our MSE for each of our model fits was between 1 and 2.2. That’s pretty good, especially relative to some of our other runs. Our worst run was actually for November 11 at 7:00 am, exactly 3 hours after the ignition of Camp Fire. We chose this time thinking that there may be some additional fundamental value of our model. That is, can the model predict the EPA readings after a major fire event without explicitly knowing that a fire had occurred. Unfortunately, with only 62 observations to use, the MSE for each of our three fits was very poor, ranging from 620 to over 1000. It’s unclear at this point, if the poor performance is only a function of the lack of useful observations used to train and test the model, or if there are other features associated with fire events that we should have included to provide better predictive power. 
+#   * Ultimately, it’s hard to really know truly how useful this multi point model is. We’re hesitant to give the general model (irrespective of OLS, Ridge, Lasso) much credence, if only for the seemingly high variability in MSEs across different hours of the year. An interesting next step would be to loop our model in all 8760 hours of the year and find average hourly MSEs. Perhaps many or most of the hours have enough observations that for any one hour, the models will provide meaningfully accurate results. On the other hand, this may not be true, and perhaps many hours of the year have few observations like the Nov 11 7:00 am time - and therefore the model we’ve built may have limited applicability. Still, what we can say is that overall, there seems to be (based off of 7 sample runs, admittedly, not a great sample size to judge this off of) a threshold number of observations that can help us identify which hours are likely to be better forecasted by our model.
+#
+#   Original Question: Should the government subsidize the purchase of PurpleAir or other low quality air monitors?
+#
+#   Our results again are a toss up: While the models perform reasonably well in certain cases (May 2 and June 7), we see a large variance in the MSEs across our cases - again, the case of Nov 11, 72 hours after the ignition of the 2018 Camp Fire. The real world application of our analysis is as follows: it may be possible to further subset our forecasts to see if there are certain EPA sensors that we can more reliably forecast for. If we can accurately and consistently forecast certain EPA sensors by only the PurpleAir input data, we may be able to convince state decisionmakers to spend less money on replacing faulty or broken EPA sensors, and instead use a cluster of local and cheaper PurpleAir sensors to understand and record air quality. Additionally:
+#   * Much like our analysis in question 2, it’s worth looking again at how our different models performed across different hours. Also similar to the prior question, we’re seeing a lot of variation between hours. Unlike question 2, it doesn’t appear to solely be motivated by the number of observations used to train and test our model. For example, our first two cases on May 2 and June 7 both contain around 140 observations. The MSEs for our 3 models across those two cases ranges from 8.8 to 13.7. Our next case on May 14 features about half as many observations (70) but a better MSE across all three models, ranging from 4.8 to 5.3. This partially calls into question this particular modeling exercise because it shows that increasing the number of observations will not always correspond to an decrease in MSE. Perhaps there’s something specific to these hours that we haven’t accounted for in this particular question, but it’s difficult to say one way or the other. 
+#   
 # %%

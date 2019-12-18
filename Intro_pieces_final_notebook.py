@@ -1377,6 +1377,83 @@ plt.ylabel('Coefficient Values')
 plt.savefig('Initial_run.png', bbox_inches='tight')
 
 #This concludes 1 case run for our multi point model for question 2. For the sake of reiteration, this multi point model takes in multiple data sources in addition to the base EPA data. Now we move to a modified version of this model where we only use the 4 features from PurpleAir as predictors for question 3. Because this code is adapted from the multi-point model introduced above, we won't spend the time setting up dependendies and loading in data, it's already been done above. Instead, the modeling below is meant to show outcomes from when we only use PA data with the EPA data to forecast the EPA data:
+# %%
+#Relying on functions defined earlier in our earlier multi-point model, we re run this same cell but with only the PA included along with the EPA data:
+df_analysis = get_final_timevarying_dataframe(df_epa, [df_pa], month=5,day=2,hour=8)
+df_analysis = df_analysis.drop(columns=['id','latitude','longitude'])
+df_analysis = df_analysis.rename(columns={'latitude_x':'latitude', 'longitude_x':'longitude'})
+nullcount = df_analysis.isnull().sum(axis=1)
+df_analysis = df_analysis[nullcount == 0].reset_index(drop=True)
+# %%
+# Get X and y data sets, do train test split
+y = df_analysis['epa_meas']
+X_raw = df_analysis.drop(columns=['epa_meas'])
+scaler = StandardScaler()
+X = pd.DataFrame(scaler.fit_transform(X_raw), index=X_raw.index, columns=X_raw.columns)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2, random_state=99)
+# %%
+# Run initial model
+
+mses_all = {} 
+coefs_all = {}
+for model in [Ridge, Lasso, LinearRegression]:
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+mses_all
+coefs_all
+
+alphas_ridge = [0.01, 0.1, 1, 10, 100, 1000, 10000, 10**5, 10**6, 10**7]
+alphas_lasso = [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
+mses_ridge = model_cv_mse(Ridge, X_train, y_train, alphas_ridge)
+mses_lasso = model_cv_mse(Lasso, X_train, y_train, alphas_lasso)
+
+fig, ax = plt.subplots(figsize=(10,5))
+plt.subplot(121)
+plt.plot(np.log10(alphas_ridge),mses_ridge)
+plt.title("Model Selection w/ Ridge Regression")
+plt.xlabel("Log of alpha")
+plt.ylabel("Cross-validated MSE")
+
+plt.subplot(122)
+plt.plot(np.log10(alphas_lasso),mses_lasso)
+plt.title("Model Selection w/ Lasso Regression")
+plt.xlabel("Log of alpha")
+plt.ylabel("Cross-validated MSE")
+
+plt.tight_layout()
+plt.show()
+# %%
+#Redoing three models, w optimized alphas
+mses_all = {}
+coefs_all = {}
+
+models = [Ridge, Lasso, LinearRegression]
+alphas = [alphas_ridge[np.argmin(mses_ridge)], alphas_lasso[np.argmin(mses_lasso)], 0]
+
+for model, alpha in zip(models,alphas):
+    mse, coef = fit_model(model, X_train, X_test, y_train, y_test, alpha)
+    mses_all[model] = mse
+    coefs_all[model] = coef
+
+mses_all
+coefs_all
+# %%
+#Visualization of Beta coefficients
+
+entries = np.arange(0,len(coefs_all[Lasso])) #chose Len of Lasso but should get same result across all three
+plt.figure(figsize=(20, 12))
+plt.subplot(1, 3, 1)
+plt.scatter(x=entries,y=coefs_all[Lasso], c='b')
+plt.scatter(x=entries,y=coefs_all[Ridge], c='g')
+plt.scatter(x=entries,y=coefs_all[LinearRegression], c='r')
+plt.title('Coefficient Values (Betas)')
+plt.xlabel('Coefficients')
+plt.ylabel('Coefficient Values')
+plt.savefig('Initial_run.png', bbox_inches='tight')
+
+#And that's it! To repeat for the hours included in our poster presentation, you'd need to go back up a few cells and re run the get_timevarying_dataframe function with a new input for day, month, and hour.
 
 # %% [markdown]
 #    ## Interpretation and Conclusions (20 points)
